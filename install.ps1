@@ -290,7 +290,17 @@ function Install-ArxLauncher {
     $launcher = @"
 @echo off
 setlocal
-""$pythonPath"" ""$cliPath"" %*
+set "ARX_PY=$pythonPath"
+set "ARX_CLI=$cliPath"
+if not exist "%ARX_PY%" (
+  echo [ARX][ERROR] Python runtime not found: %ARX_PY%
+  exit /b 1
+)
+if not exist "%ARX_CLI%" (
+  echo [ARX][ERROR] CLI script not found: %ARX_CLI%
+  exit /b 1
+)
+"%ARX_PY%" "%ARX_CLI%" %*
 "@
     Set-Content -Path (Join-Path $targetDir 'arx.bat') -Value $launcher -Encoding ASCII
 }
