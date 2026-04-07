@@ -142,13 +142,23 @@ if errorlevel 1 (
 )
 
 call :box Setup Summary
-echo   Platform         : windows
-echo   Dashboard port   : %DASHBOARD_PORT%
-echo   Trigger          : %AGENT_TRIGGER%
-echo   Gemma model      : %GEMMA_MODEL%
-echo   Context size     : %GEMMA_CONTEXT_SIZE%
-echo   Temperature      : %GEMMA_TEMPERATURE%
-echo   Admin user       : %ADMIN_USER%
+if "%UI_ENABLED%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Platform         : windows' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Dashboard port   : %DASHBOARD_PORT%' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Trigger          : %AGENT_TRIGGER%' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Gemma model      : %GEMMA_MODEL%' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Context size     : %GEMMA_CONTEXT_SIZE%' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Temperature      : %GEMMA_TEMPERATURE%' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  Admin user       : %ADMIN_USER%' -ForegroundColor Cyan"
+) else (
+  echo   Platform         : windows
+  echo   Dashboard port   : %DASHBOARD_PORT%
+  echo   Trigger          : %AGENT_TRIGGER%
+  echo   Gemma model      : %GEMMA_MODEL%
+  echo   Context size     : %GEMMA_CONTEXT_SIZE%
+  echo   Temperature      : %GEMMA_TEMPERATURE%
+  echo   Admin user       : %ADMIN_USER%
+)
 
 call :transition Running installation pipeline
 
@@ -235,26 +245,43 @@ if "%UI_ENABLED%"=="1" call :transition All done
 exit /b 0
 
 :banner
+chcp 65001 >nul 2>nul
 cls
 echo.
-echo  █████╗ ██████╗ ██╗  ██╗
-echo ██╔══██╗██╔══██╗╚██╗██╔╝
-echo ███████║██████╔╝ ╚███╔╝
-echo ██╔══██║██╔══██╗ ██╔██╗
-echo ██║  ██║██║  ██║██╔╝ ██╗
-echo ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
-echo.
-echo +--------------------------------------------------------------+
-echo ^| Agentic Runtime for eXecution ^| OpenClaw-style Setup      ^|
-echo +--------------------------------------------------------------+
+if "%UI_ENABLED%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '    ___    ____  __  __' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '   /   |  / __ \/\ \/ /' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  / /| | / /_/ / \  / ' -ForegroundColor Green"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host ' / ___ |/ _, _/  / /  ' -ForegroundColor Yellow"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '/_/  |_/_/ |_|  /_/   ' -ForegroundColor Magenta"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host ''"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup        |' -ForegroundColor White"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
+) else (
+  echo    ___    ____  __  __
+  echo   /   ^|  / __ \/\ \/ /
+  echo  / /^| ^| / /_/ / \  /
+  echo / ___ ^|/ _, _/  / /
+  echo /_/  ^|_/_/ ^|_^|  /_/
+  echo +--------------------------------------------------------------+
+  echo ^| Agentic Runtime for eXecution ^| OpenClaw-style Setup        ^|
+  echo +--------------------------------------------------------------+
+)
 echo.
 exit /b 0
 
 :box
 echo.
-echo +--------------------------------------------------------------+
-echo ^| %~1
-echo +--------------------------------------------------------------+
+if "%UI_ENABLED%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '| %~1' -ForegroundColor White"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
+) else (
+  echo +--------------------------------------------------------------+
+  echo ^| %~1
+  echo +--------------------------------------------------------------+
+)
 exit /b 0
 
 :introanim
@@ -282,7 +309,7 @@ if "%UI_ENABLED%"=="0" (
 setlocal EnableDelayedExpansion
 set "msg=%~1"
 for %%D in (. .. ...) do (
-  echo [ARX] !msg!%%D
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '[ARX] !msg!%%D' -ForegroundColor Yellow"
   powershell -NoProfile -Command "Start-Sleep -Milliseconds 110" >nul 2>nul
 )
 endlocal
@@ -295,7 +322,7 @@ exit /b 0
 
 :loading
 if "%UI_ENABLED%"=="0" exit /b 0
-echo    ... %~1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '   ... %~1' -ForegroundColor DarkGray"
 powershell -NoProfile -Command "Start-Sleep -Milliseconds 120" >nul 2>nul
-echo    [OK] %~1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '   [OK] %~1' -ForegroundColor Green"
 exit /b 0
