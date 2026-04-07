@@ -46,6 +46,31 @@ if "%DASHBOARD_PORT%"=="" set DASHBOARD_PORT=18890
 if "%AGENT_TRIGGER%"=="" set AGENT_TRIGGER=gemma
 if "%GEMMA_MODEL%"=="" set GEMMA_MODEL=gemma4:e2b
 
+for /f "delims=0123456789" %%A in ("%DASHBOARD_PORT%") do (
+  echo Invalid --port value. Must be numeric.
+  exit /b 1
+)
+if %DASHBOARD_PORT% LSS 1024 (
+  echo Invalid --port. Must be between 1024 and 65535.
+  exit /b 1
+)
+if %DASHBOARD_PORT% GTR 65535 (
+  echo Invalid --port. Must be between 1024 and 65535.
+  exit /b 1
+)
+
+echo %GEMMA_MODEL% | findstr /C:":" >nul
+if errorlevel 1 (
+  echo Invalid --model value. Expected format like gemma4:e2b
+  exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$t='%AGENT_TRIGGER%'; if($t -match '^[a-zA-Z0-9_-]{2,24}$'){exit 0}else{exit 1}" >nul 2>nul
+if errorlevel 1 (
+  echo Invalid --trigger value. Use 2-24 chars [a-zA-Z0-9_-]
+  exit /b 1
+)
+
 echo [ARX 1/8] Checking Python...
 where python >nul 2>nul || (echo Python 3.11+ is required & exit /b 1)
 
@@ -65,7 +90,7 @@ if errorlevel 1 (
   winget install Ollama.Ollama -e --accept-package-agreements --accept-source-agreements || (echo Ollama install failed. Install manually and rerun. & exit /b 1)
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $ok = Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3; exit 0 } catch { exit 1 }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3 | Out-Null; exit 0 } catch { exit 1 }"
 if errorlevel 1 (
   echo Starting Ollama in background...
   start "" /B ollama serve
@@ -109,46 +134,47 @@ if "%YES_MODE%"=="0" (
 )
 
 if "%ADMIN_PASS%"=="" set ADMIN_PASS=AutoGenPleaseChange
+set ARX_TMP_PY=%TEMP%\arx_env_gen_%RANDOM%%RANDOM%.py
+(
+  echo import base64, hashlib, secrets, pathlib, os
+  echo def hash_pw(p):
+  echo ^    iters = 120000
+  echo ^    salt = secrets.token_bytes(16)
+  echo ^    out = hashlib.pbkdf2_hmac('sha256', p.encode(), salt, iters)
+  echo ^    return f"pbkdf2_sha256${iters}${base64.b64encode(salt).decode()}${base64.b64encode(out).decode()}"
+  echo root = pathlib.Path('.').resolve()
+  echo admin_user = os.environ.get('ADMIN_USER', 'admin')
+  echo admin_pass = os.environ.get('ADMIN_PASS', '') or secrets.token_urlsafe(10)
+  echo session = secrets.token_urlsafe(32)
+  echo public = secrets.token_urlsafe(24)
+  echo content = f"""BIND_HOST=0.0.0.0
+  echo BIND_PORT={os.environ.get('DASHBOARD_PORT','18890')}
+  echo AUTH_USERNAME={admin_user}
+  echo AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
+  echo SESSION_SECRET={session}
+  echo PUBLIC_READ_ENABLED=false
+  echo PUBLIC_READ_TOKEN={public}
+  echo MC_HOST=127.0.0.1
+  echo MC_PORT=25565
+  echo MC_TMUX_SESSION=mc_server_arx
+  echo GEMMA_ENABLED=true
+  echo GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
+  echo GEMMA_OLLAMA_MODEL={os.environ.get('GEMMA_MODEL','gemma4:e2b')}
+  echo GEMMA_MAX_REPLY_CHARS=220
+  echo GEMMA_COOLDOWN_SEC=2.5
+  echo AGENT_TRIGGER={os.environ.get('AGENT_TRIGGER','gemma')}
+  echo GEMMA_CONTEXT_SIZE=8192
+  echo GEMMA_TEMPERATURE=0.2
+  echo """
+  echo (root / '.env').write_text(content, encoding='utf-8')
+  echo print('Generated .env')
+  echo print(f'Admin username: {admin_user}')
+  echo print(f'Temporary admin password: {admin_pass}')
+  echo print('Change credentials after first login.')
+) > "%ARX_TMP_PY%"
 
-python - <<PY
-import base64, hashlib, secrets, pathlib, os
-
-def hash_pw(p: str) -> str:
-    iters = 120000
-    salt = secrets.token_bytes(16)
-    out = hashlib.pbkdf2_hmac('sha256', p.encode(), salt, iters)
-    return f"pbkdf2_sha256${iters}${base64.b64encode(salt).decode()}${base64.b64encode(out).decode()}"
-
-root = pathlib.Path('.').resolve()
-admin_user = os.environ.get('ADMIN_USER', 'admin')
-admin_pass = os.environ.get('ADMIN_PASS', '') or secrets.token_urlsafe(10)
-session = secrets.token_urlsafe(32)
-public = secrets.token_urlsafe(24)
-content = f"""BIND_HOST=0.0.0.0
-BIND_PORT={os.environ.get('DASHBOARD_PORT','18890')}
-AUTH_USERNAME={admin_user}
-AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
-SESSION_SECRET={session}
-PUBLIC_READ_ENABLED=false
-PUBLIC_READ_TOKEN={public}
-MC_HOST=127.0.0.1
-MC_PORT=25565
-MC_TMUX_SESSION=mc_server_arx
-GEMMA_ENABLED=true
-GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
-GEMMA_OLLAMA_MODEL={os.environ.get('GEMMA_MODEL','gemma4:e2b')}
-GEMMA_MAX_REPLY_CHARS=220
-GEMMA_COOLDOWN_SEC=2.5
-AGENT_TRIGGER={os.environ.get('AGENT_TRIGGER','gemma')}
-GEMMA_CONTEXT_SIZE=8192
-GEMMA_TEMPERATURE=0.2
-"""
-(root / '.env').write_text(content, encoding='utf-8')
-print('Generated .env')
-print(f'Admin username: {admin_user}')
-print(f'Temporary admin password: {admin_pass}')
-print('Change credentials after first login.')
-PY
+python "%ARX_TMP_PY%" || (echo Failed generating .env & del "%ARX_TMP_PY%" & exit /b 1)
+del "%ARX_TMP_PY%" >nul 2>nul
 
 :finish
 echo [ARX 8/8] Install complete.

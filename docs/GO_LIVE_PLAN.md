@@ -3,7 +3,7 @@
 > Goal: Ship an OpenClaw-style one-command installer + guided setup + browser dashboard, while keeping deployment isolated from existing environments.
 
 ## Scope
-- Linux-first V1 release (Ubuntu/Debian officially supported)
+- V1 official support: Linux + Windows (macOS best effort)
 - Local-first Ollama + Gemma (`gemma4:e2b`)
 - Vanilla Minecraft server only
 - File-based state (no DB)

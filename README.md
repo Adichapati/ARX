@@ -4,7 +4,9 @@
  ___  ________   __
  / _ \ | ___ \ \ / /
 / /_\ \| |_/ /\ V /
-|  _  ||    / /   | | | || |\ \/ /^\ \_| |_/\_| \_\/   \/
+|  _  ||    / /   \
+| | | || |\ \/ /^\ \
+\_| |_/\_| \_\/   \/
 ```
 
 Local-first, one-click deployable Minecraft server dashboard with an integrated Gemma assistant (`gemma4:e2b`) running via local Ollama.
@@ -15,6 +17,10 @@ ARX development/testing is isolated from your existing dashboard/server:
 - Separate default dashboard port: `18890` (not `18789`)
 - Separate tmux session default: `mc_server_arx`
 - Separate installer/runtime scripts
+
+## Supported Platforms (v0.1.0)
+- Official: Linux + Windows
+- Best effort: macOS
 
 ## Vision
 OpenClaw-style onboarding:

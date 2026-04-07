@@ -207,6 +207,37 @@ prompt_if_needed() {
   export ARX_ADMIN_PASS="$ADMIN_PASS"
 }
 
+validate_inputs() {
+  if ! [[ "$DASHBOARD_PORT" =~ ^[0-9]+$ ]]; then
+    err "Port must be numeric. Got: $DASHBOARD_PORT"
+    exit 1
+  fi
+  if (( DASHBOARD_PORT < 1024 || DASHBOARD_PORT > 65535 )); then
+    err "Port must be between 1024 and 65535. Got: $DASHBOARD_PORT"
+    exit 1
+  fi
+
+  AGENT_TRIGGER="$(echo "$AGENT_TRIGGER" | tr '[:upper:]' '[:lower:]')"
+  if ! [[ "$AGENT_TRIGGER" =~ ^[a-z0-9_-]{2,24}$ ]]; then
+    err "Trigger must match [a-z0-9_-]{2,24}. Got: $AGENT_TRIGGER"
+    exit 1
+  fi
+
+  if [[ -z "$GEMMA_MODEL" ]]; then
+    err "Model cannot be empty."
+    exit 1
+  fi
+  if [[ "$GEMMA_MODEL" != *:* ]]; then
+    err "Model should look like 'name:tag' (e.g., gemma4:e2b). Got: $GEMMA_MODEL"
+    exit 1
+  fi
+
+  if ! [[ "$ARX_ADMIN_USER" =~ ^[a-zA-Z0-9_.-]{3,32}$ ]]; then
+    err "Admin username must match [a-zA-Z0-9_.-]{3,32}. Got: $ARX_ADMIN_USER"
+    exit 1
+  fi
+}
+
 setup_python() {
   log "Setting up Python environment..."
   if [[ ! -d .venv ]]; then
@@ -307,6 +338,7 @@ finalize() {
 export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL
 
 prompt_if_needed
+validate_inputs
 install_prereqs
 setup_python
 ensure_ollama

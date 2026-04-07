@@ -20,7 +20,7 @@ Exit criteria:
 - [x] Make `install.sh` idempotent (safe to run twice)
 - [x] Add `--yes` non-interactive mode
 - [x] Add setup prompts: agent name, admin creds, RAM, port, MOTD, max players, difficulty, OP list, trigger word, local model context size/tuning defaults
-- [ ] Validate all user inputs before writing `.env`
+- [x] Validate all user inputs before writing `.env`
 - [x] Emit clear post-install summary with next commands
 - [x] Implement OS-specific Ollama install flows (Linux/macOS/Windows paths) and verify service availability before completing setup
 - [x] Improve failure messages + remediation steps
@@ -83,7 +83,7 @@ Exit criteria:
 
 - [ ] Tag release: `v0.1.0`
 - [ ] Publish release notes with known limitations
-- [ ] Mark platform support explicitly (Linux-first)
+- [ ] Mark platform support explicitly (Linux + Windows official, macOS best effort)
 - [ ] Announce install command + quickstart docs
 - [ ] Open `v0.1.1` tracking milestone
 
