@@ -249,21 +249,23 @@ chcp 65001 >nul 2>nul
 cls
 echo.
 if "%UI_ENABLED%"=="1" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '    ___    ____  __  __' -ForegroundColor Cyan"
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '   /   |  / __ \/\ \/ /' -ForegroundColor Cyan"
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '  / /| | / /_/ / \  / ' -ForegroundColor Green"
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host ' / ___ |/ _, _/  / /  ' -ForegroundColor Yellow"
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '/_/  |_/_/ |_|  /_/   ' -ForegroundColor Magenta"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host ' █████╗ ██████╗ ██╗  ██╗' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '██╔══██╗██╔══██╗╚██╗██╔╝' -ForegroundColor Cyan"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '███████║██████╔╝ ╚███╔╝ ' -ForegroundColor Green"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '██╔══██║██╔══██╗ ██╔██╗ ' -ForegroundColor Yellow"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '██║  ██║██║  ██║██╔╝ ██╗' -ForegroundColor Magenta"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝' -ForegroundColor Magenta"
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host ''"
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup        |' -ForegroundColor White"
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '+--------------------------------------------------------------+' -ForegroundColor DarkGray"
 ) else (
-  echo    ___    ____  __  __
-  echo   /   ^|  / __ \/\ \/ /
-  echo  / /^| ^| / /_/ / \  /
-  echo / ___ ^|/ _, _/  / /
-  echo /_/  ^|_/_/ ^|_^|  /_/
+  echo  █████╗ ██████╗ ██╗  ██╗
+  echo ██╔══██╗██╔══██╗╚██╗██╔╝
+  echo ███████║██████╔╝ ╚███╔╝
+  echo ██╔══██║██╔══██╗ ██╔██╗
+  echo ██║  ██║██║  ██║██╔╝ ██╗
+  echo ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
   echo +--------------------------------------------------------------+
   echo ^| Agentic Runtime for eXecution ^| OpenClaw-style Setup        ^|
   echo +--------------------------------------------------------------+
