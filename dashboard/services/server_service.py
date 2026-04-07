@@ -2,6 +2,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import time
 
@@ -87,24 +88,44 @@ class ServerService:
                 state['last_status_note'] = 'start failed (windows branch on non-windows host)'
                 return 'failed: windows start is only available on Windows host'
 
-            script = str(MINECRAFT_DIR / 'start.bat')
             flags = 0
             flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-            flags |= getattr(subprocess, 'DETACHED_PROCESS', 0)
             flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
+            startupinfo = None
+            if hasattr(subprocess, 'STARTUPINFO'):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= getattr(subprocess, 'STARTF_USESHOWWINDOW', 0)
+                startupinfo.wShowWindow = getattr(subprocess, 'SW_HIDE', 0)
+
+            java_cmd = shutil.which('javaw') or shutil.which('java')
+            if not java_cmd:
+                state['last_status_note'] = 'start failed (windows): java not found'
+                return 'failed: java/javaw not found in PATH'
+
+            jar = str(MINECRAFT_DIR / 'server.jar')
+            if not os.path.exists(jar):
+                state['last_status_note'] = 'start failed (windows): server.jar missing'
+                return f'failed: missing {jar}'
+
+            eula = MINECRAFT_DIR / 'eula.txt'
+            if not eula.exists():
+                eula.write_text('eula=true\n', encoding='utf-8')
+
             try:
-                devnull = open(os.devnull, 'w')
+                os.makedirs(str(MINECRAFT_DIR / 'logs'), exist_ok=True)
+                out = open(MINECRAFT_DIR / 'logs' / 'arx-server.log', 'ab')
                 subprocess.Popen(
-                    ['cmd', '/c', script],
+                    [java_cmd, '-Xms1G', '-Xmx2G', '-jar', jar, 'nogui'],
                     cwd=str(MINECRAFT_DIR),
-                    stdin=devnull,
-                    stdout=devnull,
-                    stderr=devnull,
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=out,
                     creationflags=flags,
+                    startupinfo=startupinfo,
                     close_fds=True,
                 )
-                state['last_status_note'] = 'start command sent (windows detached, no popup)'
+                state['last_status_note'] = 'start command sent (windows hidden process)'
                 return 'started'
             except Exception as e:
                 state['last_status_note'] = 'start failed (windows)'

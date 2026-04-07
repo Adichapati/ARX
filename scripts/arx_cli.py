@@ -79,6 +79,22 @@ def _ollama_ok() -> bool:
         return False
 
 
+def _win_creationflags() -> int:
+    flags = 0
+    flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+    flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    return flags
+
+
+def _win_startupinfo_hidden():
+    if os.name != 'nt' or not hasattr(subprocess, 'STARTUPINFO'):
+        return None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= getattr(subprocess, 'STARTF_USESHOWWINDOW', 0)
+    si.wShowWindow = getattr(subprocess, 'SW_HIDE', 0)
+    return si
+
+
 def _find_dashboard_procs() -> list[psutil.Process]:
     procs: list[psutil.Process] = []
     marker = str(ROOT)
@@ -156,11 +172,14 @@ def _start_ollama() -> tuple[bool, str]:
     try:
         with log_path.open('ab') as out:
             if os.name == 'nt':
-                flags = 0
-                flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-                flags |= getattr(subprocess, 'DETACHED_PROCESS', 0)
-                flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                subprocess.Popen(['ollama', 'serve'], stdout=out, stderr=out, stdin=subprocess.DEVNULL, creationflags=flags)
+                subprocess.Popen(
+                    ['ollama', 'serve'],
+                    stdout=out,
+                    stderr=out,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=_win_creationflags(),
+                    startupinfo=_win_startupinfo_hidden(),
+                )
             else:
                 subprocess.Popen(['ollama', 'serve'], stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True)
     except Exception as e:
@@ -187,15 +206,30 @@ def _start_server() -> tuple[bool, str]:
 
     mc = minecraft_dir()
     if os.name == 'nt':
-        script = mc / 'start.bat'
-        if not script.exists():
-            return False, f'missing {script}'
+        # Start directly with java/javaw to avoid visible cmd windows.
+        java_cmd = shutil.which('javaw') or shutil.which('java')
+        if not java_cmd:
+            return False, 'java/javaw not found in PATH'
+
+        jar = mc / 'server.jar'
+        if not jar.exists():
+            return False, f'missing {jar}'
+
+        eula = mc / 'eula.txt'
+        if not eula.exists():
+            eula.write_text('eula=true\n', encoding='utf-8')
+
         try:
-            flags = 0
-            flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-            flags |= getattr(subprocess, 'DETACHED_PROCESS', 0)
-            flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            subprocess.Popen(['cmd', '/c', str(script)], cwd=str(mc), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, creationflags=flags)
+            with (STATE_DIR / 'server.log').open('ab') as out:
+                subprocess.Popen(
+                    [java_cmd, '-Xms1G', '-Xmx2G', '-jar', str(jar), 'nogui'],
+                    cwd=str(mc),
+                    stdout=out,
+                    stderr=out,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=_win_creationflags(),
+                    startupinfo=_win_startupinfo_hidden(),
+                )
             return True, 'start requested'
         except Exception as e:
             return False, f'failed: {e}'
@@ -251,11 +285,15 @@ def _start_dashboard() -> tuple[bool, str]:
     try:
         with log_path.open('ab') as out:
             if os.name == 'nt':
-                flags = 0
-                flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-                flags |= getattr(subprocess, 'DETACHED_PROCESS', 0)
-                flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                subprocess.Popen(cmd, cwd=str(ROOT), stdout=out, stderr=out, stdin=subprocess.DEVNULL, creationflags=flags)
+                subprocess.Popen(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdout=out,
+                    stderr=out,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=_win_creationflags(),
+                    startupinfo=_win_startupinfo_hidden(),
+                )
             else:
                 subprocess.Popen(cmd, cwd=str(ROOT), stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True)
     except Exception as e:
@@ -285,15 +323,21 @@ def _tail(path: Path, lines: int) -> str:
 
 def cmd_help(_: argparse.Namespace) -> int:
     print('ARX command help\n')
-    print('  arx help            Show this help menu')
-    print('  arx start           Start ollama + minecraft + dashboard')
-    print('  arx stop            Stop dashboard + minecraft (keeps ollama running)')
-    print('  arx shutdown        Stop dashboard + minecraft + ollama')
-    print('  arx restart         Restart dashboard + minecraft (keeps ollama policy of start)')
-    print('  arx status          Show status of dashboard/server/ollama')
-    print('  arx open            Open dashboard in default browser')
-    print('  arx logs [target]   Show logs (dashboard|server|ollama), default dashboard')
-    print('  arx version         Show ARX CLI version')
+    print('  arx help                    Show this help menu')
+    print('  arx start [target]          Start services (all|dashboard|ollama|server); default all')
+    print('  arx stop                    Stop dashboard + minecraft (keeps ollama running)')
+    print('  arx shutdown                Stop dashboard + minecraft + ollama')
+    print('  arx restart                 Restart dashboard + minecraft (keeps ollama policy of start)')
+    print('  arx status                  Show status of dashboard/server/ollama')
+    print('  arx open                    Open dashboard in default browser')
+    print('  arx logs [target]           Show logs (dashboard|server|ollama), default dashboard')
+    print('  arx version                 Show ARX CLI version')
+    print('')
+    print('examples:')
+    print('  arx start                   # backward-compatible: starts all services')
+    print('  arx start dashboard         # only start dashboard')
+    print('  arx start ollama            # only start ollama')
+    print('  arx start server            # only start minecraft server')
     return 0
 
 
@@ -307,24 +351,57 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_start(_: argparse.Namespace) -> int:
-    ok, msg = _start_ollama()
-    print(f'ollama: {msg}')
-    if not ok:
-        return 1
+def cmd_start(args: argparse.Namespace) -> int:
+    target = str(getattr(args, 'target', 'all') or 'all').lower()
 
-    ok, msg = _start_server()
-    print(f'minecraft: {msg}')
-    if not ok:
-        return 1
+    if target == 'all':
+        ok, msg = _start_ollama()
+        print(f'ollama: {msg}')
+        if not ok:
+            return 1
 
-    ok, msg = _start_dashboard()
-    print(f'dashboard: {msg}')
-    if not ok:
-        return 1
+        ok, msg = _start_server()
+        print(f'minecraft: {msg}')
+        if not ok:
+            return 1
 
-    print(f'open: {dashboard_url()}')
-    return 0
+        ok, msg = _start_dashboard()
+        print(f'dashboard: {msg}')
+        if not ok:
+            return 1
+
+        print(f'open: {dashboard_url()}')
+        if os.name == 'nt' and not getattr(args, 'no_open', False):
+            try:
+                webbrowser.open(dashboard_url())
+            except Exception:
+                pass
+        return 0
+
+    if target == 'dashboard':
+        ok, msg = _start_dashboard()
+        print(f'dashboard: {msg}')
+        if ok:
+            print(f'open: {dashboard_url()}')
+            if os.name == 'nt' and not getattr(args, 'no_open', False):
+                try:
+                    webbrowser.open(dashboard_url())
+                except Exception:
+                    pass
+        return 0 if ok else 1
+
+    if target == 'ollama':
+        ok, msg = _start_ollama()
+        print(f'ollama: {msg}')
+        return 0 if ok else 1
+
+    if target == 'server':
+        ok, msg = _start_server()
+        print(f'minecraft: {msg}')
+        return 0 if ok else 1
+
+    print(f'unknown start target: {target} (use all|dashboard|ollama|server)', file=sys.stderr)
+    return 1
 
 
 def cmd_stop(_: argparse.Namespace) -> int:
@@ -387,7 +464,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp = p.add_subparsers(dest='command')
 
     sp.add_parser('help')
-    sp.add_parser('start')
+    start_p = sp.add_parser('start')
+    start_p.add_argument(
+        'target',
+        nargs='?',
+        default='all',
+        choices=('all', 'dashboard', 'ollama', 'server'),
+        help='Service target to start (default: all)',
+    )
+    start_p.add_argument('--no-open', action='store_true', help='Do not auto-open dashboard browser on Windows when starting dashboard/all')
     sp.add_parser('stop')
     sp.add_parser('shutdown')
     sp.add_parser('restart')

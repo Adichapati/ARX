@@ -7,13 +7,15 @@ import urllib.parse
 import urllib.request
 
 from ..config import (
+    AGENT_TRIGGER,
+    GEMMA_CONTEXT_SIZE,
+    GEMMA_COOLDOWN_SEC,
+    GEMMA_ENABLED,
+    GEMMA_MAX_REPLY_CHARS,
+    GEMMA_OLLAMA_MODEL,
+    GEMMA_OLLAMA_URL,
+    GEMMA_TEMPERATURE,
     LOG_FILE,
-    WILSON_AI_BASE_URL,
-    WILSON_AI_ENABLED,
-    WILSON_AI_MODEL,
-    WILSON_AI_TOKEN,
-    WILSON_MAX_REPLY_CHARS,
-    WILSON_OP_COOLDOWN_SEC,
     load_op_assist_state,
     save_op_assist_state,
 )
@@ -51,9 +53,9 @@ class OpAssistService:
         text = (text or '').strip()
         if not text:
             return
-        if len(text) > WILSON_MAX_REPLY_CHARS:
-            text = text[:WILSON_MAX_REPLY_CHARS - 1] + '…'
-        ServerService.send_console_command(f"say Wilson: {text}", tier='admin', unsafe_ok=True)
+        if len(text) > GEMMA_MAX_REPLY_CHARS:
+            text = text[:GEMMA_MAX_REPLY_CHARS - 1] + '…'
+        ServerService.send_console_command(f"say {AGENT_TRIGGER}: {text}", tier='admin', unsafe_ok=True)
 
     @staticmethod
     def _is_blocked(cmd: str) -> bool:
@@ -66,8 +68,9 @@ class OpAssistService:
 
 
     @staticmethod
-    def _extract_after_wilson(msg: str) -> str:
-        parts = re.split(r'\bwilson\b', msg, maxsplit=1, flags=re.IGNORECASE)
+    def _extract_after_trigger(msg: str) -> str:
+        trig = re.escape(AGENT_TRIGGER)
+        parts = re.split(rf'\b{trig}\b', msg, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) < 2:
             return ''
         tail = parts[1].strip()
@@ -85,15 +88,15 @@ class OpAssistService:
 
     @staticmethod
     def _llm_call(user: str, text: str) -> dict:
-        # Fallback if LLM disabled or token missing
-        if not WILSON_AI_ENABLED or not WILSON_AI_TOKEN:
-            explicit = OpAssistService._extract_after_wilson(text)
+        # Fallback if LLM disabled
+        if not GEMMA_ENABLED:
+            explicit = OpAssistService._extract_after_trigger(text)
             if explicit:
                 return {'type': 'command', 'command': explicit, 'say': f"running: {explicit}"}
-            return {'type': 'chat', 'say': f"Hey {user}, I'm online. Ask me with: Wilson <command>."}
+            return {'type': 'chat', 'say': f"Hey {user}, I'm online. Ask me with: {AGENT_TRIGGER} <command>."}
 
         system_prompt = (
-            "You are Wilson, a Minecraft OP assistant.\n"
+            f"You are {AGENT_TRIGGER}, a Minecraft OP assistant.\n"
             "Return STRICT JSON only with schema:\n"
             "{\"type\":\"chat\",\"say\":\"...\"} OR "
             "{\"type\":\"command\",\"command\":\"...\",\"say\":\"...\"}.\n"
@@ -115,34 +118,28 @@ class OpAssistService:
         messages = [{'role': 'system', 'content': system_prompt}] + hist + [{'role': 'user', 'content': text}]
 
         payload = {
-            'model': WILSON_AI_MODEL,
+            'model': GEMMA_OLLAMA_MODEL,
             'messages': messages,
-            'temperature': 0.2,
+            'temperature': GEMMA_TEMPERATURE,
+            'stream': False,
+            'options': {'num_ctx': GEMMA_CONTEXT_SIZE},
         }
         body = json.dumps(payload).encode('utf-8')
 
-        # Copilot-compatible endpoint requires api-version query param.
-        url = WILSON_AI_BASE_URL
-        if 'api.githubcopilot.com' in url and 'api-version=' not in url:
-            sep = '&' if '?' in url else '?'
-            url = f"{url}{sep}api-version=2025-04-01-preview"
-
         req = urllib.request.Request(
-            url,
+            GEMMA_OLLAMA_URL,
             data=body,
             headers={
                 'Content-Type': 'application/json',
-                'Authorization': f'Bearer {WILSON_AI_TOKEN}',
-                'User-Agent': 'OpenClawDashboard/Wilson',
+                'User-Agent': 'OpenClawDashboard/Gemma',
             },
             method='POST',
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as r:
+            with urllib.request.urlopen(req, timeout=20) as r:
                 raw = r.read().decode('utf-8', errors='replace')
         except urllib.error.HTTPError as e:
-            txt = e.read().decode('utf-8', errors='replace') if hasattr(e, 'read') else str(e)
             return {'type': 'chat', 'say': f"I hit API error ({e.code}). Try again."}
         except Exception:
             return {'type': 'chat', 'say': "I'm having connection issues right now. Try again in a moment."}
@@ -165,7 +162,7 @@ class OpAssistService:
             return obj
         except Exception:
             # fallback: treat as chat
-            return {'type': 'chat', 'say': content[:WILSON_MAX_REPLY_CHARS]}
+            return {'type': 'chat', 'say': content[:GEMMA_MAX_REPLY_CHARS]}
 
     @staticmethod
     async def run_loop():
@@ -208,12 +205,12 @@ class OpAssistService:
 
                         if user.lower() not in ops:
                             continue
-                        if 'wilson' not in msg.lower():
+                        if not re.search(rf'\b{re.escape(AGENT_TRIGGER)}\b', msg, flags=re.IGNORECASE):
                             continue
 
                         # OP cooldown
                         last = OpAssistService._last_seen_by_user.get(user.lower(), 0.0)
-                        if now - last < WILSON_OP_COOLDOWN_SEC:
+                        if now - last < GEMMA_COOLDOWN_SEC:
                             continue
                         OpAssistService._last_seen_by_user[user.lower()] = now
 

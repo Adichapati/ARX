@@ -22,6 +22,7 @@ def main() -> int:
     parser.add_argument('--admin-pass', default='')
     parser.add_argument('--trigger', default='gemma')
     parser.add_argument('--model', default='gemma4:e2b')
+    parser.add_argument('--ollama-url', default='http://localhost:11434/v1/chat/completions')
     args = parser.parse_args()
 
     import os
@@ -31,6 +32,7 @@ def main() -> int:
     admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '') or secrets.token_urlsafe(10)
     trigger = args.trigger or os.environ.get('ARX_TRIGGER', 'gemma')
     model = args.model or os.environ.get('ARX_MODEL', 'gemma4:e2b')
+    ollama_url = args.ollama_url or os.environ.get('ARX_OLLAMA_URL', 'http://localhost:11434/v1/chat/completions')
     context_size = os.environ.get('ARX_CONTEXT_SIZE', '8192')
     temperature = os.environ.get('ARX_TEMPERATURE', '0.2')
 
@@ -45,7 +47,7 @@ MC_HOST=127.0.0.1
 MC_PORT=25565
 MC_TMUX_SESSION=mc_server_arx
 GEMMA_ENABLED=true
-GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
+GEMMA_OLLAMA_URL={ollama_url}
 GEMMA_OLLAMA_MODEL={model}
 GEMMA_MAX_REPLY_CHARS=220
 GEMMA_COOLDOWN_SEC=2.5

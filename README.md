@@ -72,6 +72,9 @@ After installer completes, use the global `arx` command:
 ```bash
 arx help
 arx start
+arx start dashboard
+arx start ollama
+arx start server
 arx status
 arx open
 arx shutdown
@@ -79,7 +82,10 @@ arx shutdown
 
 `arx help` commands:
 - `arx help` — Show command menu
-- `arx start` — Start Ollama + Minecraft + dashboard
+- `arx start` — Start all services (Ollama + Minecraft + dashboard; backward-compatible default)
+- `arx start dashboard` — Start dashboard only
+- `arx start ollama` — Start Ollama only
+- `arx start server` — Start Minecraft server only
 - `arx stop` — Stop dashboard + Minecraft (keeps Ollama running)
 - `arx shutdown` — Stop dashboard + Minecraft + Ollama
 - `arx restart` — Restart stack

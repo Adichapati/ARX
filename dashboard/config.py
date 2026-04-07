@@ -56,6 +56,16 @@ WILSON_OP_COOLDOWN_SEC = float(os.environ.get('WILSON_OP_COOLDOWN_SEC', '2.5'))
 WILSON_CONFIRM_TTL_SEC = int(os.environ.get('WILSON_CONFIRM_TTL_SEC', '45'))
 WILSON_MAX_REPLY_CHARS = int(os.environ.get('WILSON_MAX_REPLY_CHARS', '220'))
 
+# Gemma assistant runtime config (preferred names)
+AGENT_TRIGGER = os.environ.get('AGENT_TRIGGER', 'gemma').strip().lower() or 'gemma'
+GEMMA_ENABLED = os.environ.get('GEMMA_ENABLED', os.environ.get('WILSON_AI_ENABLED', 'true')).lower() == 'true'
+GEMMA_OLLAMA_URL = os.environ.get('GEMMA_OLLAMA_URL', os.environ.get('WILSON_AI_BASE_URL', 'http://localhost:11434/v1/chat/completions'))
+GEMMA_OLLAMA_MODEL = os.environ.get('GEMMA_OLLAMA_MODEL', os.environ.get('WILSON_AI_MODEL', 'gemma4:e2b'))
+GEMMA_CONTEXT_SIZE = int(os.environ.get('GEMMA_CONTEXT_SIZE', '8192'))
+GEMMA_TEMPERATURE = float(os.environ.get('GEMMA_TEMPERATURE', '0.2'))
+GEMMA_COOLDOWN_SEC = float(os.environ.get('GEMMA_COOLDOWN_SEC', os.environ.get('WILSON_OP_COOLDOWN_SEC', '2.5')))
+GEMMA_MAX_REPLY_CHARS = int(os.environ.get('GEMMA_MAX_REPLY_CHARS', os.environ.get('WILSON_MAX_REPLY_CHARS', '220')))
+
 MAX_ATTEMPTS = 5
 ATTEMPT_WINDOW_SEC = 300
 LOCKOUT_SEC = 900
