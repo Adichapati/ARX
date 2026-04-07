@@ -14,11 +14,11 @@ Set-Location -Path $PSScriptRoot
 function Show-Banner {
     Clear-Host
     Write-Host ''
-    Write-Host '    ___    ____   __   __' -ForegroundColor Cyan
-    Write-Host '   /   |  / __ \  \ \ / /' -ForegroundColor Cyan
-    Write-Host '  / /| | / /_/ /   \ V / ' -ForegroundColor Green
-    Write-Host ' / ___ |/ _, _/    /   \ ' -ForegroundColor Yellow
-    Write-Host '/_/  |_/_/ |_|    /_/\_\ ' -ForegroundColor Magenta
+    Write-Host '    ___    ____  __  __' -ForegroundColor Cyan
+    Write-Host '   /   |  / __ \ \ \/ /' -ForegroundColor Cyan
+    Write-Host '  / /| | / /_/ /  \  / ' -ForegroundColor Green
+    Write-Host ' / ___ |/ _, _/   / /  ' -ForegroundColor Yellow
+    Write-Host '/_/  |_/_/ |_|   /_/   ' -ForegroundColor Magenta
     Write-Host ''
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
     Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup            |' -ForegroundColor White
@@ -30,11 +30,11 @@ function Show-TitleAnimation {
     if ($Yes) { return }
 
     $lines = @(
-        '    ___    ____   __   __',
-        '   /   |  / __ \  \ \ / /',
-        '  / /| | / /_/ /   \ V / ',
-        ' / ___ |/ _, _/    /   \ ',
-        '/_/  |_/_/ |_|    /_/\_\ '
+        '    ___    ____  __  __',
+        '   /   |  / __ \ \ \/ /',
+        '  / /| | / /_/ /  \  / ',
+        ' / ___ |/ _, _/   / /  ',
+        '/_/  |_/_/ |_|   /_/   '
     )
     $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
