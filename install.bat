@@ -69,6 +69,7 @@ set STEP_TOTAL=11
 set STEP_CUR=0
 
 call :banner
+call :introanim
 call :transition Opening setup
 call :box Interactive First-Run
 
@@ -243,8 +244,9 @@ echo ██╔══██║██╔══██╗ ██╔██╗
 echo ██║  ██║██║  ██║██╔╝ ██╗
 echo ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
 echo.
-echo Agentic Runtime for eXecution
-echo OpenClaw-style installer
+echo +--------------------------------------------------------------+
+echo ^| Agentic Runtime for eXecution ^| OpenClaw-style Setup      ^|
+echo +--------------------------------------------------------------+
 echo.
 exit /b 0
 
@@ -253,6 +255,23 @@ echo.
 echo +--------------------------------------------------------------+
 echo ^| %~1
 echo +--------------------------------------------------------------+
+exit /b 0
+
+:introanim
+if "%UI_ENABLED%"=="0" exit /b 0
+echo [ARX] Initializing UI [#####.............................................]  10%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [############......................................]  24%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [###################...............................]  38%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [##########################........................]  52%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [#################################.................]  66%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [########################################..........]  80%%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 70" >nul 2>nul
+echo [ARX] Initializing UI [##################################################] 100%%
 exit /b 0
 
 :transition

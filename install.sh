@@ -61,9 +61,23 @@ banner() {
 ██║  ██║██║  ██║██╔╝ ██╗
 ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
 
-Agentic Runtime for eXecution
-OpenClaw-style installer
+╔══════════════════════════════════════════════════════════════╗
+║   Agentic Runtime for eXecution • OpenClaw-style Setup      ║
+╚══════════════════════════════════════════════════════════════╝
 EOF
+}
+
+intro_animation() {
+  if [[ "$UI_ENABLED" != true ]]; then
+    return
+  fi
+  local i bar
+  for i in 10 24 38 52 66 80 100; do
+    bar=$(printf '%*s' $((i/2)) '' | tr ' ' '█')
+    printf "\r[ARX] Initializing UI [% -50s] %3d%%" "$bar" "$i"
+    sleep 0.08
+  done
+  printf "\n"
 }
 
 box() {
@@ -391,6 +405,7 @@ run_step() {
 export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE
 
 banner
+intro_animation
 transition "Opening setup"
 box "Interactive First-Run"
 prompt_if_needed
