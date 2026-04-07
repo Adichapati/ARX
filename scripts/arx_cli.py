@@ -174,20 +174,52 @@ def _tmux_has_session(name: str) -> bool:
 
 
 def _terminate_processes(procs: list[psutil.Process], timeout: float = 4.0) -> int:
+    """Best-effort terminate that never raises on AccessDenied/NoSuchProcess."""
     if not procs:
         return 0
+
+    seen: set[int] = set()
+    touched = 0
+
     for p in procs:
         try:
+            pid = int(p.pid)
+        except Exception:
+            continue
+        if pid in seen:
+            continue
+        seen.add(pid)
+
+        # Try graceful terminate first.
+        try:
             p.terminate()
+            touched += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
         except Exception:
             pass
-    gone, alive = psutil.wait_procs(procs, timeout=timeout)
-    for p in alive:
+
+        # Wait a bit, but never fail if wait is not permitted.
+        try:
+            p.wait(timeout=timeout)
+            continue
+        except (psutil.TimeoutExpired, psutil.AccessDenied):
+            pass
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            continue
+        except Exception:
+            pass
+
+        # Escalate to kill if still alive and accessible.
         try:
             p.kill()
+            touched += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
         except Exception:
             pass
-    return len(gone) + len(alive)
+
+    return touched
 
 
 def _start_ollama() -> tuple[bool, str]:
@@ -311,8 +343,16 @@ def _stop_server() -> tuple[bool, str]:
             except Exception:
                 pass
 
-    n = _terminate_processes(_find_server_procs())
-    if n == 0:
+    procs = _find_server_procs()
+    n = _terminate_processes(procs)
+
+    # On Windows, Java may be owned by a different privilege context.
+    # Treat "still running but inaccessible" as actionable guidance, not a crash.
+    still_running = bool(_find_server_procs())
+    if still_running and os.name == 'nt':
+        return False, 'server process still running (likely permission denied). Re-run terminal as Administrator or stop javaw.exe from Task Manager.'
+
+    if n == 0 and not still_running:
         return True, 'not running'
     return True, f'stopped {n} process(es)'
 
@@ -530,6 +570,10 @@ def cmd_stop(_: argparse.Namespace) -> int:
     print('ollama: kept running (use "arx shutdown" to stop all)')
     if playit_enabled():
         print('playit: left running (use "arx tunnel stop" or "arx shutdown" to stop tunnel)')
+
+    if not ok_s and os.name == 'nt':
+        print('hint: this usually means javaw.exe was started by elevated context. Open PowerShell as Administrator and retry.')
+
     return 0 if (ok_d and ok_s) else 1
 
 
