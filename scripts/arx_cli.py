@@ -283,6 +283,7 @@ def _start_server() -> tuple[bool, str]:
         return True, 'already running'
 
     mc = minecraft_dir()
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
     if os.name == 'nt':
         # Start directly with java/javaw to avoid visible cmd windows.
         java_cmd = shutil.which('javaw') or shutil.which('java')
@@ -497,6 +498,7 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx status                  Show status of dashboard/server/ollama/playit')
     print('  arx open                    Open dashboard in default browser')
     print('  arx logs [target]           Show logs (dashboard|server|ollama|playit), default dashboard')
+    print('  arx doctor                  Run local read-only diagnostics (PASS/WARN/FAIL)')
     print('  arx ai set-context <tokens> Set Ollama context tokens (recommended 2048..8192)')
     print('  arx tunnel setup [--url <addr>] [--enable]  Start Playit tunnel + save URL')
     print('  arx tunnel status           Show Playit tunnel status + configured URL')
@@ -523,6 +525,96 @@ def cmd_status(_: argparse.Namespace) -> int:
     print(f'minecraft: {"up" if server else "down"}  ({minecraft_dir()})')
     print(f'ollama:    {"up" if ollama else "down"}  (http://127.0.0.1:11434)')
     print(f'playit:    {"up" if p_running else "down"}  (enabled={str(p_enabled).lower()}, url={playit_url() or "not-set"})')
+    return 0
+
+
+def cmd_doctor(_: argparse.Namespace) -> int:
+    critical_failures = 0
+    warnings = 0
+
+    def _emit(status: str, label: str, detail: str, hint: str = '') -> None:
+        nonlocal critical_failures, warnings
+        print(f'{status:<4} {label}: {detail}')
+        if hint:
+            print(f'     hint: {hint}')
+        if status == 'FAIL':
+            critical_failures += 1
+        elif status == 'WARN':
+            warnings += 1
+
+    print('ARX doctor diagnostics\n')
+
+    if ENV_PATH.exists():
+        _emit('PASS', '.env', f'found ({ENV_PATH})')
+    else:
+        _emit('FAIL', '.env', f'missing ({ENV_PATH})', 'create it from .env.example and fill required values')
+
+    venv_py = ROOT / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+    if venv_py.exists():
+        _emit('PASS', 'venv python', f'found ({venv_py})')
+    else:
+        _emit('FAIL', 'venv python', f'missing ({venv_py})', 'run install script to create .venv')
+
+    raw_port = cfg('BIND_PORT', '18890')
+    dashboard_port: int | None = None
+    try:
+        dashboard_port = int(str(raw_port).strip())
+        if not (1 <= dashboard_port <= 65535):
+            raise ValueError('out of range')
+        _emit('PASS', 'dashboard port config', f'BIND_PORT={dashboard_port}')
+    except Exception:
+        _emit('FAIL', 'dashboard port config', f'invalid BIND_PORT={raw_port!r}', 'set BIND_PORT to an integer between 1 and 65535')
+
+    if dashboard_port is not None:
+        if _port_open('127.0.0.1', dashboard_port):
+            _emit('PASS', 'dashboard port reachability', f'127.0.0.1:{dashboard_port} is reachable')
+        else:
+            _emit('WARN', 'dashboard port reachability', f'127.0.0.1:{dashboard_port} is not reachable', 'start dashboard with: arx start dashboard')
+
+    mc_dir = minecraft_dir()
+    if mc_dir.exists() and mc_dir.is_dir():
+        _emit('PASS', 'minecraft dir', f'found ({mc_dir})')
+
+        jar_path = mc_dir / 'server.jar'
+        if jar_path.exists():
+            _emit('PASS', 'minecraft server.jar', f'found ({jar_path})')
+        else:
+            _emit('FAIL', 'minecraft server.jar', f'missing ({jar_path})', 'place server.jar in MINECRAFT_DIR')
+    else:
+        _emit('FAIL', 'minecraft dir', f'missing ({mc_dir})', 'set MINECRAFT_DIR correctly or rerun installer')
+
+    java_bin = shutil.which('java')
+    if java_bin:
+        _emit('PASS', 'binary java', f'found ({java_bin})')
+    else:
+        _emit('FAIL', 'binary java', 'not found in PATH', 'install Java 21+ and ensure java is on PATH')
+
+    ollama_bin = shutil.which('ollama')
+    if ollama_bin:
+        _emit('PASS', 'binary ollama', f'found ({ollama_bin})')
+        if _ollama_ok():
+            _emit('PASS', 'ollama api', 'http://127.0.0.1:11434/api/tags reachable')
+        else:
+            _emit('WARN', 'ollama api', 'not reachable at http://127.0.0.1:11434', 'start ollama with: arx start ollama')
+    else:
+        _emit('FAIL', 'binary ollama', 'not found in PATH', 'install Ollama from https://ollama.com/download')
+
+    if os.name != 'nt':
+        tmux_bin = shutil.which('tmux')
+        if tmux_bin:
+            _emit('PASS', 'binary tmux', f'found ({tmux_bin})')
+        else:
+            _emit('WARN', 'binary tmux', 'not found in PATH', 'install tmux for managed server sessions (e.g., apt install tmux)')
+
+    if critical_failures:
+        warning_label = 'warning' if warnings == 1 else 'warnings'
+        print(f'\nResult: FAIL ({critical_failures} critical, {warnings} {warning_label})')
+        return 1
+
+    if warnings:
+        print(f'\nResult: PASS with warnings ({warnings})')
+    else:
+        print('\nResult: PASS')
     return 0
 
 
@@ -602,16 +694,18 @@ def cmd_stop(_: argparse.Namespace) -> int:
 
 
 def cmd_shutdown(_: argparse.Namespace) -> int:
-    _ = cmd_stop(argparse.Namespace())
+    stop_rc = cmd_stop(argparse.Namespace())
     ok_o, msg_o = _stop_ollama()
     print(f'ollama: {msg_o}')
     ok_p, msg_p = _stop_playit()
     print(f'playit: {msg_p}')
-    return 0 if (ok_o and ok_p) else 1
+    return 0 if (stop_rc == 0 and ok_o and ok_p) else 1
 
 
 def cmd_restart(_: argparse.Namespace) -> int:
-    _ = cmd_stop(argparse.Namespace())
+    stop_rc = cmd_stop(argparse.Namespace())
+    if stop_rc != 0:
+        return 1
     time.sleep(1)
     return cmd_start(argparse.Namespace())
 
@@ -745,6 +839,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_parser('restart')
     sp.add_parser('status')
     sp.add_parser('open')
+    sp.add_parser('doctor')
 
     lp = sp.add_parser('logs')
     lp.add_argument('target', nargs='?', default='dashboard')
@@ -782,6 +877,7 @@ def main() -> int:
         'restart': cmd_restart,
         'status': cmd_status,
         'open': cmd_open,
+        'doctor': cmd_doctor,
         'logs': cmd_logs,
         'ai': cmd_ai,
         'tunnel': cmd_tunnel,
@@ -790,7 +886,8 @@ def main() -> int:
     fn = table.get(cmd)
     if not fn:
         print(f'unknown command: {cmd}\n', file=sys.stderr)
-        return cmd_help(argparse.Namespace())
+        cmd_help(argparse.Namespace())
+        return 1
     return int(fn(args))
 
 

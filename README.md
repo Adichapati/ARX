@@ -78,6 +78,7 @@ arx start dashboard
 arx start ollama
 arx start server
 arx status
+arx doctor
 arx open
 arx shutdown
 ```
@@ -92,6 +93,7 @@ arx shutdown
 - `arx shutdown` — Stop dashboard + Minecraft + Ollama (+ Playit tunnel if running)
 - `arx restart` — Restart stack
 - `arx status` — Show live service status (dashboard/server/ollama/playit)
+- `arx doctor` — Run local read-only diagnostics with PASS/WARN/FAIL checks + remediation hints (exits non-zero on critical failures; zero on pass/pass-with-warnings)
 - `arx open` — Open dashboard in browser
 - `arx logs [dashboard|server|ollama|playit]` — Tail logs
 - `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)

@@ -112,10 +112,19 @@ input,select,textarea{width:100%;padding:10px;border-radius:10px;border:3px soli
 .small{font-size:12px;opacity:.85}.pill{display:inline-block;padding:4px 8px;border:2px solid var(--ink);border-radius:999px;background:#fff;font-size:12px;font-weight:800}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.statusline{min-height:22px;font-weight:800}
 .success{color:#0b7f35}.error{color:#b00020}.chip{display:inline-flex;align-items:center;gap:6px;border:2px solid var(--ink);border-radius:999px;padding:4px 10px;margin:4px;background:#fff;font-weight:700}
+.conn{display:inline-flex;align-items:center;gap:8px;padding-right:12px}
+.conn-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--ink);background:#b0b0b0}
+.conn.state-connected .conn-dot{background:#0b7f35}
+.conn.state-reconnecting .conn-dot{background:#ffb347}
+.conn.state-disconnected .conn-dot{background:#b00020}
+.conn.state-connecting .conn-dot{background:#77b8ff}
 </style></head><body><div class='wrap'>
 <div class='card'><div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'>
 <div><h2 style='margin:8px 0 0 0;font-size:32px'>Minecraft Dashboard</h2><div class='k'>Modular control panel</div></div>
-<button class='btn ghost' onclick='logout()'>Logout</button></div></div>
+<div class='row' style='margin:0'>
+  <span id='wsState' class='pill conn state-connecting'><span class='conn-dot'></span><span id='wsStateText'>Connecting...</span></span>
+  <button class='btn ghost' onclick='logout()'>Logout</button>
+</div></div></div>
 
 <div class='card'><span class='tag status'>MINECRAFT STATUS</span>
 <div class='big' id='running' style='margin-top:8px'>...</div><div class='k' id='serverinfo'>...</div>
@@ -130,7 +139,7 @@ input,select,textarea{width:100%;padding:10px;border-radius:10px;border:3px soli
 <div class='grid3'>
  <div class='card'><span class='tag' style='background:var(--blue)'>CPU</span><div class='big' id='cpu' style='margin-top:8px'>...</div></div>
  <div class='card'><span class='tag' style='background:var(--mint)'>RAM</span><div class='big' id='ram' style='margin-top:8px'>...</div><div class='k mono' id='ramd'></div></div>
- <div class='card'><span class='tag' style='background:var(--pink)'>LINKS</span><div class='mono linkline'><span class='linklabel'>Private:</span><a class='linkvalue' id='plink' href='#' target='_blank'></a></div><div class='mono linkline'><span class='linklabel'>Public RO:</span><a class='linkvalue' id='publicRead' href='#' target='_blank'></a></div><div class='copyline'><span class='k'>Server:</span><span id='serverAddress' class='copybox mono'>...</span><button class='btn ghost' onclick='copyServerAddress()'>Copy address</button></div><div class='small' id='serverAddressMeta'>Mode: ...</div><div id='copyStatus' class='statusline small'></div></div>
+ <div class='card'><span class='tag' style='background:var(--pink)'>LINKS</span><div class='mono linkline'><span class='linklabel'>Private:</span><a class='linkvalue' id='plink' href='#' target='_blank' rel='noopener noreferrer'></a></div><div class='mono linkline'><span class='linklabel'>Public RO:</span><a class='linkvalue' id='publicRead' href='#' target='_blank' rel='noopener noreferrer'></a></div><div class='copyline'><span class='k'>Server:</span><span id='serverAddress' class='copybox mono'>...</span><button class='btn ghost' onclick='copyServerAddress()'>Copy address</button></div><div class='small' id='serverAddressMeta'>Mode: ...</div><div id='copyStatus' class='statusline small'></div></div>
 </div>
 
 <div class='card'><div class='tabs'>
@@ -161,6 +170,17 @@ input,select,textarea{width:100%;padding:10px;border-radius:10px;border:3px soli
 
 <script>
 let ws;
+let wsReconnectAttempt = 0;
+let wsReconnectTimer = null;
+const WS_BACKOFF_MIN_MS = 1000;
+const WS_BACKOFF_MAX_MS = 30000;
+const WS_BACKOFF_JITTER_MS = 250;
+let coreRefreshInFlight = false;
+
+function wsConnected(){ return !!ws && ws.readyState === WebSocket.OPEN; }
+function escHtml(v){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escAttr(v){ return escHtml(v); }
+
 function st(id,m,ok=true){const e=document.getElementById(id); if(!e)return; e.textContent=m||''; e.className='statusline small '+(ok?'success':'error');}
 async function api(path,method='GET',body=null){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null}); if(r.status===401){location.href='/login'; throw new Error('unauthorized');} const j=await r.json().catch(()=>({error:'request failed'})); if(!r.ok) throw new Error(j.error||'request failed'); return j;}
 async function logout(){await api('/api/logout','POST'); location.href='/login';}
@@ -168,7 +188,50 @@ async function act(a){try{await api('/api/'+a,'POST');}catch(e){st('cmdStatus',e
 async function toggle(n){try{await api('/api/toggle/'+n,'POST');}catch(e){st('cmdStatus',e.message,false)}}
 function render(d){running.textContent=d.running?'RUNNING':'STOPPED'; running.style.color=d.running?'#0b7f35':'#b00020'; serverinfo.textContent=`${d.server_info.public} | Version: ${d.server_info.version} | Players: ${d.server_info.players}`; cpu.textContent=d.metrics.cpu_percent+'%'; ram.textContent=d.metrics.memory_percent+'%'; ramd.textContent=`${d.metrics.memory_used_gb} GB / ${d.metrics.memory_total_gb} GB`; automsg.textContent=`Auto-start: ${d.automation.auto_start?'ON':'OFF'} | Auto-stop: ${d.automation.auto_stop?'ON':'OFF'} | ${d.automation.last_status_note}`; plink.textContent=d.dashboard.private_link; plink.href=d.dashboard.private_link; publicRead.textContent=d.dashboard.public_readonly_link; publicRead.href=d.dashboard.public_readonly_link; serverAddress.textContent=d.server_info.connect_address || d.server_info.lan || d.server_info.public || '127.0.0.1:25565'; serverAddressMeta.textContent=`Mode: ${(d.server_info.connect_mode||'lan').toUpperCase()} | LAN: ${d.server_info.lan || 'n/a'} | Public: ${d.server_info.public || 'n/a'}`; sr.value=d.automation.restart_minutes||0; sb.value=d.automation.backup_minutes||0;}
 function ap(chunk){if(!chunk)return; logs.textContent+=chunk; if(logs.textContent.length>70000) logs.textContent=logs.textContent.slice(-50000); logs.scrollTop=logs.scrollHeight;}
-async function wsconn(){try{const t=await api('/api/ws-ticket'); const scheme=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${scheme}://${location.host}/ws?ticket=${encodeURIComponent(t.ticket)}`); ws.onmessage=(ev)=>{try{const m=JSON.parse(ev.data); if(m.type==='snapshot') render(m.data); if(m.type==='log') ap(m.chunk||'');}catch(_){}}; ws.onclose=()=>setTimeout(wsconn,2000);}catch(_){setTimeout(wsconn,3000)}}
+function setWsStatus(state,label){
+  const el = document.getElementById('wsState');
+  const txt = document.getElementById('wsStateText');
+  if(!el || !txt) return;
+  el.classList.remove('state-connected','state-reconnecting','state-disconnected','state-connecting');
+  el.classList.add('state-'+state);
+  txt.textContent = label;
+}
+function nextWsReconnectDelay(){
+  const exp = Math.min(wsReconnectAttempt, 8);
+  const base = Math.min(WS_BACKOFF_MAX_MS, WS_BACKOFF_MIN_MS * Math.pow(2, exp));
+  const jitter = Math.floor(Math.random() * ((WS_BACKOFF_JITTER_MS * 2) + 1)) - WS_BACKOFF_JITTER_MS;
+  wsReconnectAttempt = Math.min(wsReconnectAttempt + 1, 12);
+  return Math.max(WS_BACKOFF_MIN_MS, Math.min(WS_BACKOFF_MAX_MS, base + jitter));
+}
+function scheduleWsReconnect(){
+  if(wsReconnectTimer) return;
+  if(!navigator.onLine){
+    setWsStatus('disconnected','Disconnected (offline)');
+    return;
+  }
+  const delay = nextWsReconnectDelay();
+  setWsStatus('reconnecting', `Reconnecting (${(delay/1000).toFixed(1)}s)`);
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsconn();
+  }, delay);
+}
+async function wsconn(){
+  if(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  try{
+    setWsStatus(wsReconnectAttempt > 0 ? 'reconnecting' : 'connecting', wsReconnectAttempt > 0 ? 'Reconnecting...' : 'Connecting...');
+    const t=await api('/api/ws-ticket');
+    const scheme=location.protocol==='https:'?'wss':'ws';
+    ws=new WebSocket(`${scheme}://${location.host}/ws?ticket=${encodeURIComponent(t.ticket)}`);
+    ws.onopen=()=>{wsReconnectAttempt=0; setWsStatus('connected','Connected');};
+    ws.onmessage=(ev)=>{try{const m=JSON.parse(ev.data); if(m.type==='snapshot') render(m.data); if(m.type==='log') ap(m.chunk||'');}catch(_){}};
+    ws.onerror=()=>{try{ws && ws.close();}catch(_){}};
+    ws.onclose=()=>{setWsStatus(navigator.onLine ? 'reconnecting' : 'disconnected', navigator.onLine ? 'Reconnecting...' : 'Disconnected'); scheduleWsReconnect();};
+  }catch(_){
+    setWsStatus(navigator.onLine ? 'reconnecting' : 'disconnected', navigator.onLine ? 'Reconnecting...' : 'Disconnected');
+    scheduleWsReconnect();
+  }
+}
 
 async function pa(a){const name=(nameA.value||'').trim(); const reason=(reasonA.value||'').trim(); try{await api('/api/players/action','POST',{action:a,name,reason}); lp();}catch(e){st('cmdStatus',e.message,false)}}
 async function quickPlayerAction(action,name){
@@ -184,16 +247,20 @@ function renderOnlinePlayers(players){
     onlinePlayers.innerHTML='<span class="small">No players online right now.</span>';
     return;
   }
-  onlinePlayers.innerHTML = players.map(n=>`
+  onlinePlayers.innerHTML = players.map(n=>{
+    const safeName = escHtml(n);
+    const encodedName = encodeURIComponent(String(n ?? ''));
+    return `
     <div class='chip'>
-      <strong>${n}</strong>
-      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('op','${n}')\">OP</button>
-      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('deop','${n}')\">DEOP</button>
-      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('whitelist_add','${n}')\">WL+</button>
-      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('whitelist_remove','${n}')\">WL-</button>
-      <button class='btn' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('kick','${n}')\">KICK</button>
-      <button class='btn stop' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('ban','${n}')\">BAN</button>
-    </div>`).join('');
+      <strong>${safeName}</strong>
+      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('op',decodeURIComponent('${encodedName}'))\">OP</button>
+      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('deop',decodeURIComponent('${encodedName}'))\">DEOP</button>
+      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('whitelist_add',decodeURIComponent('${encodedName}'))\">WL+</button>
+      <button class='btn ghost' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('whitelist_remove',decodeURIComponent('${encodedName}'))\">WL-</button>
+      <button class='btn' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('kick',decodeURIComponent('${encodedName}'))\">KICK</button>
+      <button class='btn stop' style='margin:0 0 0 6px;padding:4px 8px' onclick=\"quickPlayerAction('ban',decodeURIComponent('${encodedName}'))\">BAN</button>
+    </div>`;
+  }).join('');
 }
 async function wlt(){try{await api('/api/players/whitelist/toggle','POST'); lp();}catch(e){st('cmdStatus',e.message,false)}}
 async function lp(){try{const r=await api('/api/players/state'); plist.textContent=`WL:${r.whitelist_enabled} | Ops: ${r.ops.join(', ')||'none'} | WL: ${r.whitelist.join(', ')||'none'} | Banned: ${r.banned.join(', ')||'none'} | Online: ${r.online_count||0}`; renderOnlinePlayers(r.online_players||[]);}catch(_){}}
@@ -215,32 +282,73 @@ async function copyServerAddress(){
 async function sp(){try{await api('/api/properties','POST',{updates:{difficulty:p_difficulty.value,gamemode:p_gamemode.value,'max-players':p_max.value,motd:p_motd.value,'online-mode':p_online_mode.value,'enforce-secure-profile':p_secure_profile.value}}); st('pstat','saved (restart server to apply auth mode changes)',true);}catch(e){st('pstat',e.message,false)}}
 async function lpv(){try{const p=await api('/api/properties'); p_difficulty.value=p.values['difficulty']||'normal'; p_gamemode.value=p.values['gamemode']||'survival'; p_max.value=p.values['max-players']||20; p_motd.value=p.values['motd']||''; p_online_mode.value=p.values['online-mode']||'true'; p_secure_profile.value=p.values['enforce-secure-profile']||'true';}catch(_){}}
 async function cb(){try{const r=await api('/api/world/backup','POST'); st('wstat',r.message,true); rb();}catch(e){st('wstat',e.message,false)}}
-async function rb(){try{const r=await api('/api/world/backups'); blist.innerHTML=(r.items||[]).map(x=>`<div class='chip'>${x.name} • ${x.size_mb} MB</div>`).join('')||'No backups';}catch(_){}}
+async function rb(){try{const r=await api('/api/world/backups'); blist.innerHTML=(r.items||[]).map(x=>`<div class='chip'>${escHtml(x?.name||'')} • ${escHtml(x?.size_mb||0)} MB</div>`).join('')||'No backups';}catch(_){}}
 async function rw(){if(!confirm('Reset world?'))return; try{const r=await api('/api/world/reset','POST',{with_backup:true,new_seed:resetSeed.value||null}); st('wstat',r.message,true); rb();}catch(e){st('wstat',e.message,false)}}
 async function rs(){if(!confirm('Restore backup?'))return; try{const r=await api('/api/world/restore','POST',{name:restoreName.value}); st('wstat',r.message,true);}catch(e){st('wstat',e.message,false)}}
-async function dw(){try{const r=await api('/api/world/download-url'); window.open(r.url,'_blank');}catch(e){st('wstat',e.message,false)}}
+async function dw(){try{const r=await api('/api/world/download-url'); const w=window.open(r.url,'_blank','noopener,noreferrer'); if(w){w.opener=null;}}catch(e){st('wstat',e.message,false)}}
 async function uw(){const f=worldZip.files[0]; if(!f) return st('wstat','select a zip first',false); const fd=new FormData(); fd.append('file',f); try{const r=await fetch('/api/world/upload',{method:'POST',body:fd}); const j=await r.json(); if(!r.ok) throw new Error(j.error||'upload failed'); st('wstat',j.message,true);}catch(e){st('wstat',e.message,false)}}
 async function rseed(){const r=await api('/api/seed/generate','POST'); seed.value=r.seed;}
 async function aseed(){try{const r=await api('/api/seed/apply','POST',{seed:seed.value}); st('sstat',r.message,true);}catch(e){st('sstat',e.message,false)}}
 async function ss(){try{await api('/api/scheduler','POST',{restart_minutes:parseInt(sr.value||'0',10)||0,backup_minutes:parseInt(sb.value||'0',10)||0}); st('astat','saved',true);}catch(e){st('astat',e.message,false)}}
 async function la(){try{const a=await api('/api/analytics'); au.textContent='Uptime: '+a.uptime_percent+'%'; aa.textContent='Avg players: '+a.avg_players; ap.textContent='Peak players: '+a.peak_players;}catch(_){}}
-async function loadPlugins(){try{const c=await api('/api/plugins/catalog'); cat.innerHTML=(c.items||[]).map(x=>`<option value='${x.id}'>${x.name} (${x.kind})</option>`).join(''); const s=await api('/api/plugins/staged'); pllist.innerHTML=(s.items||[]).map(x=>`<div class='chip'>${x.name} • ${x.size_mb}MB • ${x.file} <button onclick=\"rmPlugin('${x.file}')\">x</button></div>`).join('')||'No staged items';}catch(e){st('plstat',e.message,false)}}
+async function loadPlugins(){try{const c=await api('/api/plugins/catalog'); cat.innerHTML=(c.items||[]).map(x=>`<option value='${escAttr(x?.id||'')}'>${escHtml(x?.name||'')} (${escHtml(x?.kind||'')})</option>`).join(''); const s=await api('/api/plugins/staged'); pllist.innerHTML=(s.items||[]).map(x=>`<div class='chip'>${escHtml(x?.name||'')} • ${escHtml(x?.size_mb||0)}MB • ${escHtml(x?.file||'')} <button onclick=\"rmPlugin(decodeURIComponent('${encodeURIComponent(String(x?.file||''))}'))\">x</button></div>`).join('')||'No staged items';}catch(e){st('plstat',e.message,false)}}
 async function stagePlugin(){try{const r=await api('/api/plugins/stage','POST',{id:cat.value}); st('plstat',r.message,true); loadPlugins();}catch(e){st('plstat',e.message,false)}}
 async function rmPlugin(f){try{const r=await api('/api/plugins/remove','POST',{file:f}); st('plstat',r.message,true); loadPlugins();}catch(e){st('plstat',e.message,false)}}
 
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active'); document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.getElementById('panel-'+t.dataset.tab).classList.add('active');});
-async function refreshAll(){
-  try{ const s = await api('/api/state'); render(s); }catch(_){ }
-  try{ await lp(); }catch(_){ }
-  try{ await lpv(); }catch(_){ }
-  try{ await rb(); }catch(_){ }
-  try{ await la(); }catch(_){ }
-  try{ await loadPlugins(); }catch(_){ }
+function activeTab(){const t=document.querySelector('.tab.active'); return t ? t.dataset.tab : 'players';}
+const tabRefreshers = {
+  players: lp,
+  props: lpv,
+  world: rb,
+  analytics: la,
+  plugins: loadPlugins,
+};
+const tabCadenceMs = {
+  players: 10000,
+  props: 120000,
+  world: 120000,
+  analytics: 60000,
+  plugins: 120000,
+};
+const tabLastRefresh = {};
+
+async function refreshCore(force=false){
+  if(coreRefreshInFlight) return;
+  if(!force && wsConnected()) return;
+  coreRefreshInFlight = true;
+  try{ const s = await api('/api/state'); render(s); }catch(_){ }finally{ coreRefreshInFlight = false; }
 }
 
+async function refreshTab(tab, force=false){
+  const fn = tabRefreshers[tab];
+  if(!fn) return;
+  const now = Date.now();
+  const cadence = tabCadenceMs[tab] || 120000;
+  if(!force && tabLastRefresh[tab] && (now - tabLastRefresh[tab]) < cadence) return;
+  try{ await fn(); tabLastRefresh[tab] = Date.now(); }catch(_){ }
+}
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+  refreshTab(t.dataset.tab, true);
+});
+
+window.addEventListener('online', ()=>{
+  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  if(!ws || ws.readyState !== WebSocket.OPEN){ wsconn(); }
+});
+window.addEventListener('offline', ()=>{
+  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  setWsStatus('disconnected','Disconnected (offline)');
+});
+
 wsconn();
-refreshAll();
-setInterval(refreshAll,5000);
-setInterval(la,30000);
+refreshCore(true);
+refreshTab(activeTab(), true);
+setInterval(()=>refreshCore(false),15000);
+setInterval(()=>refreshTab(activeTab(), false),15000);
 </script></body></html>
 """
