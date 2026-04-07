@@ -14,20 +14,13 @@ GEMMA_TEMPERATURE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --yes|-y)
-      YES_MODE=true; shift ;;
-    --force-env)
-      FORCE_ENV=true; shift ;;
-    --port)
-      DASHBOARD_PORT="${2:-}"; shift 2 ;;
-    --trigger)
-      AGENT_TRIGGER="${2:-}"; shift 2 ;;
-    --model)
-      GEMMA_MODEL="${2:-}"; shift 2 ;;
-    --context-size)
-      GEMMA_CONTEXT_SIZE="${2:-}"; shift 2 ;;
-    --temperature)
-      GEMMA_TEMPERATURE="${2:-}"; shift 2 ;;
+    --yes|-y) YES_MODE=true; shift ;;
+    --force-env) FORCE_ENV=true; shift ;;
+    --port) DASHBOARD_PORT="${2:-}"; shift 2 ;;
+    --trigger) AGENT_TRIGGER="${2:-}"; shift 2 ;;
+    --model) GEMMA_MODEL="${2:-}"; shift 2 ;;
+    --context-size) GEMMA_CONTEXT_SIZE="${2:-}"; shift 2 ;;
+    --temperature) GEMMA_TEMPERATURE="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
       echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2]"
@@ -40,8 +33,26 @@ need_cmd() { command -v "$1" >/dev/null 2>&1; }
 log() { echo "[ARX] $*"; }
 err() { echo "[ARX][ERROR] $*" >&2; }
 
+OS="$(uname -s)"
+case "$OS" in
+  Linux*) PLATFORM="linux" ;;
+  Darwin*) PLATFORM="macos" ;;
+  *) PLATFORM="unknown" ;;
+esac
+
+UI_ENABLED=true
+if [[ "$YES_MODE" == true ]] || [[ ! -t 1 ]]; then
+  UI_ENABLED=false
+fi
+
+STEP_TOTAL=11
+STEP_CUR=0
+
 banner() {
-cat <<'EOF'
+  if [[ -n "${TERM:-}" ]]; then
+    clear || true
+  fi
+  cat <<'EOF'
 
  █████╗ ██████╗ ██╗  ██╗
 ██╔══██╗██╔══██╗╚██╗██╔╝
@@ -50,18 +61,81 @@ cat <<'EOF'
 ██║  ██║██║  ██║██╔╝ ██╗
 ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
 
-Agentic Runtime for eXecution — OpenClaw-style setup
+Agentic Runtime for eXecution
+OpenClaw-style installer
 EOF
 }
 
-phase(){ echo; echo "[ARX][PHASE] $*"; }
+box() {
+  local title="$1"
+  echo
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  printf "║ %-60s ║\n" "$title"
+  echo "╚══════════════════════════════════════════════════════════════╝"
+}
 
-OS="$(uname -s)"
-case "$OS" in
-  Linux*) PLATFORM="linux" ;;
-  Darwin*) PLATFORM="macos" ;;
-  *) PLATFORM="unknown" ;;
-esac
+transition() {
+  local text="$1"
+  if [[ "$UI_ENABLED" == true ]]; then
+    local dots=""
+    for _ in 1 2 3; do
+      dots+="."
+      printf "\r[ARX] %s%s" "$text" "$dots"
+      sleep 0.12
+    done
+    printf "\r%-72s\r" ""
+  fi
+  echo "[ARX] $text"
+}
+
+spinner_run() {
+  local label="$1"
+  shift
+
+  local tmp pid frames i
+  tmp="$(mktemp)"
+  frames='|/-\\'
+
+  "$@" >"$tmp" 2>&1 &
+  pid=$!
+  i=0
+
+  if [[ "$UI_ENABLED" == true ]]; then
+    while kill -0 "$pid" 2>/dev/null; do
+      local c="${frames:i%4:1}"
+      printf "\r  %s %s" "$c" "$label"
+      i=$((i + 1))
+      sleep 0.08
+    done
+  fi
+
+  wait "$pid"
+  local rc=$?
+
+  if [[ "$UI_ENABLED" == true ]]; then
+    printf "\r%-80s\r" ""
+  fi
+
+  if [[ $rc -eq 0 ]]; then
+    if [[ "$UI_ENABLED" == true ]]; then
+      printf "  ✓ %s\n" "$label"
+    else
+      echo "[ARX] $label: ok"
+    fi
+    rm -f "$tmp"
+    return 0
+  fi
+
+  err "$label failed"
+  sed -n '1,200p' "$tmp" >&2 || true
+  rm -f "$tmp"
+  return 1
+}
+
+tick_step() {
+  STEP_CUR=$((STEP_CUR + 1))
+  printf "[%02d/%02d] %s\n" "$STEP_CUR" "$STEP_TOTAL" "$1"
+}
 
 install_pkg_linux() {
   local pkg="$1"
@@ -81,59 +155,59 @@ install_pkg_linux() {
 }
 
 install_prereqs() {
-  log "Checking base dependencies..."
   if ! need_cmd python3; then err "python3 is required. Install Python 3.11+ and retry."; exit 1; fi
 
   if ! need_cmd java; then
-    log "Installing Java runtime..."
     if [[ "$PLATFORM" == "linux" ]]; then
-      install_pkg_linux openjdk-21-jre-headless || install_pkg_linux java-21-openjdk-headless || { err "Could not install Java automatically. Install Java 21+ manually."; exit 1; }
+      install_pkg_linux openjdk-21-jre-headless || install_pkg_linux java-21-openjdk-headless || {
+        err "Could not install Java automatically. Install Java 21+ manually."; exit 1;
+      }
     elif [[ "$PLATFORM" == "macos" ]]; then
       need_cmd brew || { err "Homebrew required for auto-install on macOS. Install Java 21+ manually."; exit 1; }
       brew install openjdk@21
     else
-      err "Unsupported OS for auto-install. Install Java 21+ manually."; exit 1
+      err "Unsupported OS for auto-install. Install Java 21+ manually."
+      exit 1
     fi
   fi
 
   if ! need_cmd tmux; then
-    log "Installing tmux..."
     if [[ "$PLATFORM" == "linux" ]]; then
       install_pkg_linux tmux || { err "Failed to install tmux."; exit 1; }
     elif [[ "$PLATFORM" == "macos" ]]; then
       need_cmd brew || { err "Homebrew required for auto-install on macOS. Install tmux manually."; exit 1; }
       brew install tmux
     else
-      err "Unsupported OS for auto-install. Install tmux manually."; exit 1
+      err "Unsupported OS for auto-install. Install tmux manually."
+      exit 1
     fi
   fi
 
   if ! need_cmd curl; then
-    log "Installing curl..."
     if [[ "$PLATFORM" == "linux" ]]; then
       install_pkg_linux curl || { err "Failed to install curl."; exit 1; }
     elif [[ "$PLATFORM" == "macos" ]]; then
       need_cmd brew || { err "Homebrew required for auto-install on macOS. Install curl manually."; exit 1; }
       brew install curl
     else
-      err "Unsupported OS for auto-install. Install curl manually."; exit 1
+      err "Unsupported OS for auto-install. Install curl manually."
+      exit 1
     fi
   fi
 }
 
 ensure_ollama() {
-  log "Checking Ollama..."
   if ! need_cmd ollama; then
-    log "Ollama not found. Installing for $PLATFORM..."
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
       curl -fsSL https://ollama.com/install.sh | sh
     else
-      err "Unsupported OS for automatic Ollama install in install.sh."; err "Use Windows install.bat on Windows."; exit 1
+      err "Unsupported OS for automatic Ollama install in install.sh."
+      err "Use Windows install.bat on Windows."
+      exit 1
     fi
   fi
 
   if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
-    log "Starting local Ollama service..."
     nohup ollama serve >/tmp/arx-ollama.log 2>&1 &
   fi
 
@@ -148,7 +222,6 @@ ensure_ollama() {
     sleep 1
   done
 
-  log "Ensuring model '${GEMMA_MODEL}' is available..."
   if ! ollama pull "$GEMMA_MODEL"; then
     err "Failed to pull model '$GEMMA_MODEL'."
     err "Check internet connection and Ollama service status."
@@ -216,8 +289,7 @@ validate_inputs() {
 }
 
 show_summary() {
-  echo
-  echo "[ARX] Setup Summary"
+  box "Setup Summary"
   echo "  Platform         : $PLATFORM"
   echo "  Dashboard port   : $DASHBOARD_PORT"
   echo "  Trigger          : $AGENT_TRIGGER"
@@ -225,11 +297,9 @@ show_summary() {
   echo "  Context size     : $GEMMA_CONTEXT_SIZE"
   echo "  Temperature      : $GEMMA_TEMPERATURE"
   echo "  Admin user       : $ARX_ADMIN_USER"
-  echo
 }
 
 setup_python() {
-  log "Setting up Python environment..."
   if [[ ! -d .venv ]]; then python3 -m venv .venv; fi
   # shellcheck disable=SC1091
   source .venv/bin/activate
@@ -238,17 +308,14 @@ setup_python() {
 }
 
 setup_files() {
-  log "Preparing directories..."
   mkdir -p app/minecraft_server/logs state scripts
 }
 
 download_server_jar() {
   if [[ -f app/minecraft_server/server.jar ]]; then
-    log "server.jar already exists (idempotent skip)."
     return
   fi
 
-  log "Downloading latest vanilla server.jar..."
   python3 - <<'PY'
 import json, urllib.request, pathlib
 root = pathlib.Path('.').resolve()
@@ -270,8 +337,15 @@ write_env() {
     return
   fi
 
-  log "Generating secure .env..."
-  ARX_BIND_HOST="0.0.0.0"   ARX_BIND_PORT="$DASHBOARD_PORT"   ARX_ADMIN_USER="$ARX_ADMIN_USER"   ARX_ADMIN_PASS="$ARX_ADMIN_PASS"   ARX_TRIGGER="$AGENT_TRIGGER"   ARX_MODEL="$GEMMA_MODEL"   ARX_CONTEXT_SIZE="$GEMMA_CONTEXT_SIZE"   ARX_TEMPERATURE="$GEMMA_TEMPERATURE"   python3 scripts/generate_env.py --output .env
+  ARX_BIND_HOST="0.0.0.0" \
+  ARX_BIND_PORT="$DASHBOARD_PORT" \
+  ARX_ADMIN_USER="$ARX_ADMIN_USER" \
+  ARX_ADMIN_PASS="$ARX_ADMIN_PASS" \
+  ARX_TRIGGER="$AGENT_TRIGGER" \
+  ARX_MODEL="$GEMMA_MODEL" \
+  ARX_CONTEXT_SIZE="$GEMMA_CONTEXT_SIZE" \
+  ARX_TEMPERATURE="$GEMMA_TEMPERATURE" \
+  python3 scripts/generate_env.py --output .env
 }
 
 write_runtime_setup() {
@@ -297,26 +371,42 @@ PY
 
 finalize() {
   chmod +x app/minecraft_server/start.sh scripts/start_dashboard.sh install.sh scripts/generate_env.py || true
-  log "Installation complete."
-  log "Run: ./scripts/start_dashboard.sh"
-  log "Dashboard URL: http://localhost:${DASHBOARD_PORT}/"
-  log "You can now join server and use trigger '${AGENT_TRIGGER}' to talk to Gemma."
+  box "Install Complete"
+  echo "  Dashboard URL : http://localhost:${DASHBOARD_PORT}/"
+  echo "  Start command : ./scripts/start_dashboard.sh"
+  echo "  Gemma trigger : ${AGENT_TRIGGER}"
+}
+
+run_step() {
+  local title="$1"
+  shift
+  tick_step "$title"
+  if [[ "$UI_ENABLED" == true ]]; then
+    spinner_run "$title" "$@"
+  else
+    "$@"
+  fi
 }
 
 export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE
 
 banner
-phase "Interactive Setup"
+transition "Opening setup"
+box "Interactive First-Run"
 prompt_if_needed
 validate_inputs
 show_summary
 
-phase "System Preparation"
-install_prereqs
-setup_python
-ensure_ollama
-setup_files
-download_server_jar
-write_env
-write_runtime_setup
-finalize
+transition "Running installation pipeline"
+run_step "Prerequisite checks" install_prereqs
+run_step "Python environment" setup_python
+run_step "Ollama + model readiness" ensure_ollama
+run_step "Project directories" setup_files
+run_step "Minecraft server jar" download_server_jar
+run_step "Secure env generation" write_env
+run_step "Runtime setup profile" write_runtime_setup
+run_step "Finalize installer" finalize
+
+if [[ "$UI_ENABLED" == true ]]; then
+  transition "All done"
+fi
