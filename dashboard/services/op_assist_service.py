@@ -3,351 +3,288 @@ import json
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from collections import deque
 
 from ..config import (
-    AGENT_TRIGGER,
-    GEMMA_COOLDOWN_SEC,
-    GEMMA_ENABLED,
-    GEMMA_MAX_REPLY_CHARS,
-    GEMMA_OLLAMA_MODEL,
-    GEMMA_OLLAMA_URL,
-    GEMMA_TEMPERATURE,
-    KNOWN_PLAYERS_PATH,
-    OP_ASSIST_STATE_PATH,
+    LOG_FILE,
+    WILSON_AI_BASE_URL,
+    WILSON_AI_ENABLED,
+    WILSON_AI_MODEL,
+    WILSON_AI_TOKEN,
+    WILSON_MAX_REPLY_CHARS,
+    WILSON_OP_COOLDOWN_SEC,
+    load_op_assist_state,
+    save_op_assist_state,
 )
-from .config_service import ConfigService
-from .log_service import LogService
+from .player_service import PlayerService
 from .server_service import ServerService
+
+CHAT_RE = re.compile(r"\]:\s*(?:\[[^\]]+\]\s*)?<([A-Za-z0-9_]{3,16})>\s*(.+)$")
 
 
 class OpAssistService:
-    BLOCKED = [
-        r'^/?stop\s*$',
-        r'^/?restart\s*$',
-        r'^/?deop\s+',
-        r'^/?op\s+@',
-        r'^/?ban-ip\s+',
+    BLOCKED_CMD_PATTERNS = [
+        r'^stop\s*$',
+        r'^restart\s*$',
+        r'^reload\s*$',
+        r'^save-off\s*$',
+        r'^op\s+',
+        r'^deop\s+',
+        r'^whitelist\s+off\s*$',
+        r'^ban-ip\s+',
+        r'^pardon-ip\s+',
+        r'^debug\s+',
+        r'^perf\s+',
+        r'.*\b(?:rm|sudo|chmod|chown|mv|cp)\b.*',
         r'.*(?:&&|\|\||;|`|\$\().*',
+        r'.*\b(?:delete\s+world|wipe\s+world|format\s+disk)\b.*',
     ]
 
-    # Strict allowlist templates (Phase 3 safety gate)
-    ALLOWLIST = [
-        r'^say\s+.+$',
-        r'^give\s+[A-Za-z0-9_]{3,16}\s+[a-z0-9_:\.-]+(?:\s+[1-9][0-9]?)?$',
-        r'^clear\s+[A-Za-z0-9_]{3,16}(?:\s+[a-z0-9_:\.-]+)?$',
-        r'^effect\s+give\s+[A-Za-z0-9_]{3,16}\s+[a-z0-9_:\.-]+(?:\s+[0-9]{1,4})?(?:\s+[0-9]{1,2})?$',
-        r'^time\s+set\s+(?:day|night|noon|midnight)$',
-        r'^weather\s+(?:clear|rain|thunder)(?:\s+[0-9]{1,5})?$',
-        r'^gamemode\s+(?:survival|creative|adventure|spectator)\s+[A-Za-z0-9_]{3,16}$',
-        r'^tp\s+[A-Za-z0-9_]{3,16}\s+-?[0-9]{1,5}\s+-?[0-9]{1,5}\s+-?[0-9]{1,5}$',
-        r'^whitelist\s+(?:add|remove)\s+[A-Za-z0-9_]{3,16}$',
-        r'^whitelist\s+(?:list|reload)$',
-    ]
 
+    # runtime memory (in-process)
     _last_seen_by_user: dict[str, float] = {}
-    _ctx: dict[str, deque] = {}
-    _ollama_health_cache = {'ts': 0.0, 'ok': False, 'message': ''}
-
-    @staticmethod
-    def _runtime_cfg() -> dict:
-        cfg = ConfigService.load_arx_runtime_config()
-        return {
-            'trigger': str(cfg.get('agent_trigger', AGENT_TRIGGER)).strip().lower() or AGENT_TRIGGER,
-            'model': str(cfg.get('gemma_model', GEMMA_OLLAMA_MODEL)).strip() or GEMMA_OLLAMA_MODEL,
-            'temperature': float(cfg.get('gemma_temperature', GEMMA_TEMPERATURE)),
-            'max_reply_chars': int(cfg.get('gemma_max_reply_chars', GEMMA_MAX_REPLY_CHARS)),
-            'cooldown_sec': float(cfg.get('gemma_cooldown_sec', GEMMA_COOLDOWN_SEC)),
-        }
-
-    @staticmethod
-    def _known_ops() -> set[str]:
-        try:
-            data = json.loads(KNOWN_PLAYERS_PATH.read_text(encoding='utf-8'))
-            if isinstance(data, list):
-                return {str(x).lower() for x in data}
-        except Exception:
-            pass
-        return set()
-
-    @staticmethod
-    def _load_offset() -> int:
-        try:
-            data = json.loads(OP_ASSIST_STATE_PATH.read_text(encoding='utf-8'))
-            return int(data.get('log_offset', 0) or 0)
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _save_offset(offset: int) -> None:
-        OP_ASSIST_STATE_PATH.write_text(json.dumps({'log_offset': int(offset)}, indent=2), encoding='utf-8')
-
-    @staticmethod
-    def _normalize_command(command: str) -> str:
-        cmd = (command or '').strip()
-        if cmd.startswith('/'):
-            cmd = cmd[1:]
-        cmd = re.sub(r'\s+', ' ', cmd).strip()
-        return cmd
-
-    @staticmethod
-    def _contains_placeholder(command: str) -> bool:
-        c = command.lower()
-        placeholder_markers = [
-            '<player',
-            '<username',
-            '{player',
-            '{username',
-            '[player',
-            '[username',
-            'playername',
-            'your_username',
-        ]
-        if any(x in c for x in placeholder_markers):
-            return True
-        if re.search(r'<[^>]+>', command) or re.search(r'\{[^}]+\}', command):
-            return True
-        return False
-
-    @staticmethod
-    def _is_blocked(command: str) -> bool:
-        c = (command or '').strip()
-        for pat in OpAssistService.BLOCKED:
-            if re.match(pat, c, flags=re.IGNORECASE):
-                return True
-        return False
-
-    @staticmethod
-    def _is_allowlisted(command: str) -> bool:
-        c = command.strip()
-        for pat in OpAssistService.ALLOWLIST:
-            if re.match(pat, c, flags=re.IGNORECASE):
-                return True
-        return False
-
-    @staticmethod
-    def _target_must_match_user(command: str, user: str) -> bool:
-        """Require identity match for player-targeted commands."""
-        c = command.strip()
-        u = user.lower()
-
-        # give <user> ...
-        m = re.match(r'^give\s+([A-Za-z0-9_]{3,16})\s+', c, flags=re.IGNORECASE)
-        if m and m.group(1).lower() != u:
-            return False
-
-        # clear <user> ...
-        m = re.match(r'^clear\s+([A-Za-z0-9_]{3,16})(?:\s+|$)', c, flags=re.IGNORECASE)
-        if m and m.group(1).lower() != u:
-            return False
-
-        # effect give <user> ...
-        m = re.match(r'^effect\s+give\s+([A-Za-z0-9_]{3,16})\s+', c, flags=re.IGNORECASE)
-        if m and m.group(1).lower() != u:
-            return False
-
-        # gamemode <mode> <user>
-        m = re.match(r'^gamemode\s+(?:survival|creative|adventure|spectator)\s+([A-Za-z0-9_]{3,16})$', c, flags=re.IGNORECASE)
-        if m and m.group(1).lower() != u:
-            return False
-
-        # tp <user> x y z
-        m = re.match(r'^tp\s+([A-Za-z0-9_]{3,16})\s+-?[0-9]{1,5}\s+-?[0-9]{1,5}\s+-?[0-9]{1,5}$', c, flags=re.IGNORECASE)
-        if m and m.group(1).lower() != u:
-            return False
-
-        return True
-
-    @staticmethod
-    def _ollama_health(cfg_model: str) -> tuple[bool, str]:
-        now = time.time()
-        cached = OpAssistService._ollama_health_cache
-        if now - float(cached.get('ts', 0.0)) < 6.0:
-            return bool(cached.get('ok')), str(cached.get('message', ''))
-
-        try:
-            req = urllib.request.Request('http://127.0.0.1:11434/api/tags', method='GET')
-            with urllib.request.urlopen(req, timeout=1.5) as r:
-                raw = r.read().decode('utf-8', errors='replace')
-            data = json.loads(raw)
-            models = data.get('models') or []
-            names = {str(m.get('name', '')).strip() for m in models if isinstance(m, dict)}
-            if cfg_model not in names:
-                msg = f"Model '{cfg_model}' is not pulled. Run: ollama pull {cfg_model}"
-                OpAssistService._ollama_health_cache = {'ts': now, 'ok': False, 'message': msg}
-                return False, msg
-            OpAssistService._ollama_health_cache = {'ts': now, 'ok': True, 'message': 'ok'}
-            return True, 'ok'
-        except Exception:
-            msg = 'Ollama is unavailable. Start with: ollama serve'
-            OpAssistService._ollama_health_cache = {'ts': now, 'ok': False, 'message': msg}
-            return False, msg
+    _chat_history: dict[str, list[dict]] = {}
 
     @staticmethod
     def _say(text: str):
         text = (text or '').strip()
         if not text:
             return
-        max_reply = OpAssistService._runtime_cfg()['max_reply_chars']
-        if len(text) > max_reply:
-            text = text[: max_reply - 1] + '…'
-        ServerService.send_console_command(f'say Gemma: {text}', unsafe_ok=True)
+        if len(text) > WILSON_MAX_REPLY_CHARS:
+            text = text[:WILSON_MAX_REPLY_CHARS - 1] + '…'
+        ServerService.send_console_command(f"say Wilson: {text}", tier='admin', unsafe_ok=True)
 
     @staticmethod
-    def _route_non_op(user: str, msg: str) -> dict:
-        return {'type': 'chat', 'say': f"{user}, operator command mode is available to server OPs only."}
+    def _is_blocked(cmd: str) -> bool:
+        c = (cmd or '').strip()
+        for pat in OpAssistService.BLOCKED_CMD_PATTERNS:
+            if re.match(pat, c, flags=re.IGNORECASE):
+                return True
+        return False
+
+
 
     @staticmethod
-    def _llm_decide(user: str, msg: str, obs: str = '') -> dict:
-        if not GEMMA_ENABLED:
-            return {'type': 'chat', 'say': 'Gemma assistant is disabled in local config.'}
+    def _extract_after_wilson(msg: str) -> str:
+        parts = re.split(r'\bwilson\b', msg, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) < 2:
+            return ''
+        tail = parts[1].strip()
+        tail = re.sub(r'^[\s:,.!\-]+', '', tail)
+        if tail.startswith('/'):
+            tail = tail[1:].strip()
+        return tail
 
-        cfg = OpAssistService._runtime_cfg()
-        ok, health_msg = OpAssistService._ollama_health(cfg['model'])
-        if not ok:
-            return {'type': 'chat', 'say': health_msg}
+    @staticmethod
+    def _add_history(user: str, role: str, text: str):
+        buf = OpAssistService._chat_history.setdefault(user.lower(), [])
+        buf.append({'role': role, 'content': text})
+        if len(buf) > 10:
+            del buf[:-10]
 
-        hist = OpAssistService._ctx.setdefault(user.lower(), deque(maxlen=8))
-        hist.append({'role': 'user', 'content': msg})
+    @staticmethod
+    def _llm_call(user: str, text: str) -> dict:
+        # Fallback if LLM disabled or token missing
+        if not WILSON_AI_ENABLED or not WILSON_AI_TOKEN:
+            explicit = OpAssistService._extract_after_wilson(text)
+            if explicit:
+                return {'type': 'command', 'command': explicit, 'say': f"running: {explicit}"}
+            return {'type': 'chat', 'say': f"Hey {user}, I'm online. Ask me with: Wilson <command>."}
 
-        sys = (
-            'You are Gemma Assistant for Minecraft operations. '
-            'Return strict JSON only. '
-            'Schema: {"type":"chat","say":"..."} OR '
-            '{"type":"command","command":"...","say":"..."}. '
-            f'Current user is {user}. Use exact username and no placeholders. '
-            'Allowed commands only: '
-            'say, give <user> <item> [count], clear <user> [item], effect give <user> <effect> [seconds] [amplifier], '
-            'time set day|night|noon|midnight, weather clear|rain|thunder [duration], '
-            'gamemode <mode> <user>, tp <user> x y z, whitelist add/remove/list/reload. '
-            'For player-targeted commands, target must be the requesting user. '
-            'Never output shell commands. Keep responses concise.'
+        system_prompt = (
+            "You are Wilson, a Minecraft OP assistant.\n"
+            "Return STRICT JSON only with schema:\n"
+            "{\"type\":\"chat\",\"say\":\"...\"} OR "
+            "{\"type\":\"command\",\"command\":\"...\",\"say\":\"...\"}.\n"
+            "Rules:\n"
+            "- Be concise and friendly.\n"
+            "- If user asks a normal question, use type=chat.\n"
+            "- If user asks for action, produce one valid minecraft server command in command field (no slash prefix).\n"
+            f"- The current player name is '{user}'. Use that exact name when targeting the player.\n"
+            "- Commands run from server console context (not player chat), so target the user explicitly where needed.\n"
+            f"- Example: for gamemode use 'gamemode creative {user}'.\n"
+            f"- Example: for teleport to nether use 'execute in minecraft:the_nether run tp {user} 0 80 0'.\n"
+            "- Never use placeholders like <playername>, <player>, {player}, playername.\n"
+            "- Never output host shell commands.\n"
+            "- Never include 'confirm' flow.\n"
         )
 
-        messages = [{'role': 'system', 'content': sys}] + list(hist)
-        if obs:
-            messages.append({'role': 'user', 'content': f'Observation: {obs}'})
+        # conversation memory per user
+        hist = OpAssistService._chat_history.get(user.lower(), [])
+        messages = [{'role': 'system', 'content': system_prompt}] + hist + [{'role': 'user', 'content': text}]
 
         payload = {
-            'model': cfg['model'],
+            'model': WILSON_AI_MODEL,
             'messages': messages,
-            'temperature': cfg['temperature'],
+            'temperature': 0.2,
         }
+        body = json.dumps(payload).encode('utf-8')
+
+        # Copilot-compatible endpoint requires api-version query param.
+        url = WILSON_AI_BASE_URL
+        if 'api.githubcopilot.com' in url and 'api-version=' not in url:
+            sep = '&' if '?' in url else '?'
+            url = f"{url}{sep}api-version=2025-04-01-preview"
 
         req = urllib.request.Request(
-            GEMMA_OLLAMA_URL,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
+            url,
+            data=body,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {WILSON_AI_TOKEN}',
+                'User-Agent': 'OpenClawDashboard/Wilson',
+            },
             method='POST',
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with urllib.request.urlopen(req, timeout=10) as r:
                 raw = r.read().decode('utf-8', errors='replace')
+        except urllib.error.HTTPError as e:
+            txt = e.read().decode('utf-8', errors='replace') if hasattr(e, 'read') else str(e)
+            return {'type': 'chat', 'say': f"I hit API error ({e.code}). Try again."}
+        except Exception:
+            return {'type': 'chat', 'say': "I'm having connection issues right now. Try again in a moment."}
+
+        # parse OpenAI-like response
+        try:
             data = json.loads(raw)
             content = data['choices'][0]['message']['content']
+        except Exception:
+            return {'type': 'chat', 'say': "I couldn't parse the AI response. Try rephrasing."}
+
+        # enforce JSON output parsing
+        try:
+            # strip code fences if any
             content = re.sub(r'^```(?:json)?\s*', '', content.strip(), flags=re.IGNORECASE)
             content = re.sub(r'\s*```$', '', content.strip())
             obj = json.loads(content)
-            if isinstance(obj, dict) and obj.get('type') in ('chat', 'command'):
-                if 'say' in obj:
-                    hist.append({'role': 'assistant', 'content': str(obj.get('say', ''))})
-                return obj
-        except (urllib.error.URLError, urllib.error.HTTPError):
-            return {'type': 'chat', 'say': 'Local Ollama is unavailable. Start Ollama and ensure configured model is pulled.'}
+            if not isinstance(obj, dict) or obj.get('type') not in ('chat', 'command'):
+                raise ValueError('bad schema')
+            return obj
         except Exception:
-            return {'type': 'chat', 'say': 'I could not parse model output.'}
-        return {'type': 'chat', 'say': 'No valid response.'}
-
-    @staticmethod
-    def _observation_indicates_failure(obs: str) -> bool:
-        text = (obs or '').lower()
-        bad = ['unknown or incomplete command', 'error', 'failed', 'exception']
-        return any(x in text for x in bad)
+            # fallback: treat as chat
+            return {'type': 'chat', 'say': content[:WILSON_MAX_REPLY_CHARS]}
 
     @staticmethod
     async def run_loop():
-        offset = OpAssistService._load_offset()
+        state = load_op_assist_state()
+        if LOG_FILE.exists() and state.get('log_offset', 0) <= 0:
+            try:
+                state['log_offset'] = LOG_FILE.stat().st_size
+                save_op_assist_state(state)
+            except Exception:
+                pass
+
         while True:
             try:
-                d = LogService.diff_from(offset, max_bytes=131072)
-                offset = d['next_offset']
-                OpAssistService._save_offset(offset)
-                events = LogService.extract_chat_events(d['chunk'])
-                if not events:
-                    await asyncio.sleep(1.5)
+                if not LOG_FILE.exists():
+                    await asyncio.sleep(2)
                     continue
 
-                known_ops = OpAssistService._known_ops()
-                cfg = OpAssistService._runtime_cfg()
-                now = time.time()
+                size = LOG_FILE.stat().st_size
+                offset = int(state.get('log_offset', 0) or 0)
+                if offset < 0 or offset > size:
+                    offset = max(0, size - 8192)
 
-                for ev in events:
-                    user = ev['user']
-                    msg = ev['message']
-                    if cfg['trigger'] not in msg.lower():
-                        continue
+                if size > offset:
+                    with LOG_FILE.open('rb') as f:
+                        f.seek(offset)
+                        raw = f.read(min(131072, size - offset))
+                    chunk = raw.decode('utf-8', errors='replace')
+                    state['log_offset'] = offset + len(raw)
+                    save_op_assist_state(state)
 
-                    last = OpAssistService._last_seen_by_user.get(user.lower(), 0.0)
-                    if now - last < cfg['cooldown_sec']:
-                        continue
-                    OpAssistService._last_seen_by_user[user.lower()] = now
+                    ops = set(name.lower() for name in PlayerService.list_ops())
+                    now = time.time()
 
-                    if user.lower() not in known_ops:
-                        decision = OpAssistService._route_non_op(user, msg)
-                        OpAssistService._say(str(decision.get('say', '')))
-                        continue
+                    for line in chunk.splitlines():
+                        m = CHAT_RE.search(line)
+                        if not m:
+                            continue
+                        user = m.group(1)
+                        msg = m.group(2).strip()
 
-                    decision = OpAssistService._llm_decide(user, msg)
-                    if decision.get('type') != 'command':
-                        OpAssistService._say(str(decision.get('say', f'Hi {user}')))
-                        continue
+                        if user.lower() not in ops:
+                            continue
+                        if 'wilson' not in msg.lower():
+                            continue
 
-                    cmd = OpAssistService._normalize_command(str(decision.get('command', '')))
-                    if not cmd:
-                        OpAssistService._say(f'{user}, no valid command.')
-                        continue
+                        # OP cooldown
+                        last = OpAssistService._last_seen_by_user.get(user.lower(), 0.0)
+                        if now - last < WILSON_OP_COOLDOWN_SEC:
+                            continue
+                        OpAssistService._last_seen_by_user[user.lower()] = now
 
-                    # Placeholder guard
-                    if OpAssistService._contains_placeholder(cmd):
-                        OpAssistService._say(f'{user}, unresolved placeholder detected. Command refused.')
-                        continue
+                        OpAssistService._add_history(user, 'user', msg)
+                        decision = OpAssistService._llm_call(user, msg)
 
-                    # Denylist guard
-                    if OpAssistService._is_blocked(cmd):
-                        OpAssistService._say(f'{user}, that command is blocked for safety.')
-                        continue
+                        if decision.get('type') == 'chat':
+                            text = str(decision.get('say', f"Hey {user}."))
+                            OpAssistService._add_history(user, 'assistant', text)
+                            OpAssistService._say(text)
+                            continue
 
-                    # Allowlist guard
-                    if not OpAssistService._is_allowlisted(cmd):
-                        OpAssistService._say(f'{user}, command is outside the allowlist and was refused.')
-                        continue
+                        # command path
+                        cmd = str(decision.get('command', '')).strip()
+                        if not cmd:
+                            OpAssistService._say(f"{user}, I couldn't derive a valid command.")
+                            continue
 
-                    # Identity match guard for targeted commands
-                    if not OpAssistService._target_must_match_user(cmd, user):
-                        OpAssistService._say(f'{user}, targeted command must use your own username.')
-                        continue
+                        if cmd.startswith('/'):
+                            cmd = cmd[1:].strip()
 
-                    res = ServerService.send_console_command(cmd, unsafe_ok=True)
-                    obs = LogService.wait_for_command_result(cmd, timeout_sec=4.5)
+                        # normalize common player-target aliases/placeholders from AI output
+                        cmd = re.sub(r'\b@p\b', user, cmd)
+                        cmd = re.sub(r'\b(me|myself|self)\b', user, cmd, flags=re.IGNORECASE)
+                        # Replace common LLM placeholders like <playername>, <player>, {player}
+                        cmd = re.sub(r'(?i)<\s*player\s*name\s*>', user, cmd)
+                        cmd = re.sub(r'(?i)<\s*player\s*>', user, cmd)
+                        cmd = re.sub(r'(?i)\{\s*player\s*name\s*\}', user, cmd)
+                        cmd = re.sub(r'(?i)\{\s*player\s*\}', user, cmd)
+                        cmd = re.sub(r'(?i)\bplayername\b', user, cmd)
+                        cmd = re.sub(r'(?i)\bplayer_name\b', user, cmd)
 
-                    if not res.get('ok'):
-                        OpAssistService._say(f'{user}, command failed: {res.get("error", "unknown")}')
-                        continue
+                        # normalize dimension wording typo from AI
+                        cmd = cmd.replace('minecraft:nether', 'minecraft:the_nether')
 
-                    if not obs:
-                        OpAssistService._say(f'{user}, command was sent but no confirmation was observed yet.')
-                        continue
+                        # smart rewrite for natural teleport-to-dimension attempts
+                        m_tp_dim = re.match(r'^tp\s+([A-Za-z0-9_@]+)\s+minecraft:(the_nether|the_end|overworld)\s*$', cmd, flags=re.IGNORECASE)
+                        if m_tp_dim:
+                            who = m_tp_dim.group(1)
+                            dim = m_tp_dim.group(2).lower()
+                            target = {
+                                'the_nether': '0 80 0',
+                                'the_end': '0 80 0',
+                                'overworld': '0 80 0',
+                            }[dim]
+                            cmd = f'execute in minecraft:{dim} run tp {who} {target}'
 
-                    if OpAssistService._observation_indicates_failure(obs):
-                        OpAssistService._say(f'{user}, command appears to have failed. Check logs.')
-                        continue
+                        # ensure gamemode commands target a player when omitted
+                        m_gm = re.match(r'^gamemode\s+(survival|creative|adventure|spectator)\s*$', cmd, flags=re.IGNORECASE)
+                        if m_gm:
+                            mode = m_gm.group(1).lower()
+                            cmd = f'gamemode {mode} {user}'
 
-                    follow = OpAssistService._llm_decide(user, f'command issued: {cmd}', obs=obs)
-                    OpAssistService._say(str(follow.get('say', f'{user}, confirmed: {cmd}')))
+                        # refuse unresolved placeholders instead of pretending success
+                        if re.search(r'<[^>]*>|\{[^}]*\}', cmd):
+                            OpAssistService._say(f"{user}, I couldn't build a valid command yet. Please rephrase.")
+                            continue
+
+                        if OpAssistService._is_blocked(cmd):
+                            OpAssistService._say(f"sorry {user}, that command is blocked for safety.")
+                            continue
+
+                        res = ServerService.send_console_command(cmd, tier='admin', unsafe_ok=True)
+                        if res.get('ok'):
+                            say = str(decision.get('say', f"done {user} -> {cmd}"))
+                            OpAssistService._add_history(user, 'assistant', say)
+                            OpAssistService._say(say)
+                        else:
+                            OpAssistService._say(f"sorry {user}, command failed.")
 
             except Exception:
                 pass
 
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(2)

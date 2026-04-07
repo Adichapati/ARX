@@ -6,6 +6,8 @@ from fastapi import HTTPException, Request
 
 from .config import (
     ATTEMPT_WINDOW_SEC,
+    AUTH_GUEST_PASSWORD_HASH,
+    AUTH_GUEST_USERNAME,
     AUTH_PASSWORD_HASH,
     AUTH_USERNAME,
     LOCKOUT_SEC,
@@ -66,8 +68,14 @@ def require_session(request: Request) -> str:
 
 
 def check_login(username: str, password: str) -> bool:
-    if username != AUTH_USERNAME:
-        return False
-    if not AUTH_PASSWORD_HASH:
-        return False
-    return verify_password(password, AUTH_PASSWORD_HASH)
+    # Primary admin login
+    if username == AUTH_USERNAME:
+        pass_ok = verify_password(password, AUTH_PASSWORD_HASH) if AUTH_PASSWORD_HASH else False
+        return bool(pass_ok)
+
+    # Guest login
+    if username == AUTH_GUEST_USERNAME:
+        pass_ok = verify_password(password, AUTH_GUEST_PASSWORD_HASH) if AUTH_GUEST_PASSWORD_HASH else False
+        return bool(pass_ok)
+
+    return False

@@ -1,110 +1,46 @@
 import json
+import re
 from pathlib import Path
 
-from ..config import KNOWN_PLAYERS_PATH, STATE_DIR
-from .server_service import ServerService
-
-WHITELIST_PATH = STATE_DIR / 'whitelist_players.json'
+from ..config import BANNED_PLAYERS_FILE, OPS_FILE, WHITELIST_FILE
 
 
 class PlayerService:
+    NAME_RE = re.compile(r'^[A-Za-z0-9_]{3,16}$')
+
     @staticmethod
-    def _validate_username(name: str) -> str:
-        n = str(name or '').strip()
-        if not (3 <= len(n) <= 16):
-            raise ValueError('username must be 3..16 chars')
-        allowed = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
-        if any(c not in allowed for c in n):
-            raise ValueError('username must contain only [A-Za-z0-9_]')
+    def validate_name(name: str) -> str:
+        n = (name or '').strip()
+        if not PlayerService.NAME_RE.match(n):
+            raise ValueError('Invalid player name (3-16 chars, letters/numbers/_)')
         return n
 
     @staticmethod
-    def _read_list(path: Path) -> list[str]:
+    def read_json_list(path: Path) -> list[dict]:
         if not path.exists():
             return []
         try:
             data = json.loads(path.read_text(encoding='utf-8'))
             if isinstance(data, list):
-                vals = []
-                for x in data:
-                    s = str(x).strip()
-                    if s:
-                        vals.append(s)
-                return vals
+                return data
+            return []
         except Exception:
-            pass
-        return []
+            return []
 
     @staticmethod
-    def _write_list(path: Path, values: list[str]) -> list[str]:
-        seen = set()
-        out = []
-        for v in values:
-            s = str(v).strip()
-            if not s:
-                continue
-            k = s.lower()
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(s)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(sorted(out, key=str.lower), indent=2), encoding='utf-8')
-        return sorted(out, key=str.lower)
+    def _list_names(path: Path) -> list[str]:
+        items = PlayerService.read_json_list(path)
+        names = [str(x.get('name', '')).strip() for x in items if str(x.get('name', '')).strip()]
+        return sorted(set(names), key=str.lower)
 
     @staticmethod
-    def get_ops() -> list[str]:
-        return PlayerService._read_list(KNOWN_PLAYERS_PATH)
+    def list_ops() -> list[str]:
+        return PlayerService._list_names(OPS_FILE)
 
     @staticmethod
-    def get_whitelist() -> list[str]:
-        return PlayerService._read_list(WHITELIST_PATH)
+    def list_whitelist() -> list[str]:
+        return PlayerService._list_names(WHITELIST_FILE)
 
     @staticmethod
-    def add_op(username: str, sync_runtime: bool = True) -> list[str]:
-        u = PlayerService._validate_username(username)
-        cur = PlayerService.get_ops()
-        if u.lower() not in {x.lower() for x in cur}:
-            cur.append(u)
-        saved = PlayerService._write_list(KNOWN_PLAYERS_PATH, cur)
-        if sync_runtime:
-            ServerService.send_console_command(f'op {u}', unsafe_ok=True)
-        return saved
-
-    @staticmethod
-    def remove_op(username: str, sync_runtime: bool = True) -> list[str]:
-        u = PlayerService._validate_username(username)
-        cur = [x for x in PlayerService.get_ops() if x.lower() != u.lower()]
-        saved = PlayerService._write_list(KNOWN_PLAYERS_PATH, cur)
-        if sync_runtime:
-            ServerService.send_console_command(f'deop {u}', unsafe_ok=True)
-        return saved
-
-    @staticmethod
-    def add_whitelist(username: str, sync_runtime: bool = True) -> list[str]:
-        u = PlayerService._validate_username(username)
-        cur = PlayerService.get_whitelist()
-        if u.lower() not in {x.lower() for x in cur}:
-            cur.append(u)
-        saved = PlayerService._write_list(WHITELIST_PATH, cur)
-        if sync_runtime:
-            ServerService.send_console_command(f'whitelist add {u}', unsafe_ok=True)
-        return saved
-
-    @staticmethod
-    def remove_whitelist(username: str, sync_runtime: bool = True) -> list[str]:
-        u = PlayerService._validate_username(username)
-        cur = [x for x in PlayerService.get_whitelist() if x.lower() != u.lower()]
-        saved = PlayerService._write_list(WHITELIST_PATH, cur)
-        if sync_runtime:
-            ServerService.send_console_command(f'whitelist remove {u}', unsafe_ok=True)
-        return saved
-
-    @staticmethod
-    def snapshot() -> dict:
-        q = ServerService.mc_query()
-        return {
-            'ops': PlayerService.get_ops(),
-            'whitelist': PlayerService.get_whitelist(),
-            'online': q.get('player_names', []) if q.get('online') else [],
-        }
+    def list_banned() -> list[str]:
+        return PlayerService._list_names(BANNED_PLAYERS_FILE)

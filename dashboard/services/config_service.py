@@ -1,21 +1,32 @@
-import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-from ..config import EULA_PATH, ROOT, SERVER_PROPERTIES_PATH
-
-ARX_CONFIG_PATH = ROOT / 'state' / 'arx_config.json'
+from ..config import SERVER_PROPERTIES_PATH
 
 
-class ConfigService:
+class PropertiesService:
+    ALLOWED_EDIT_KEYS = {
+        'difficulty': {'type': 'enum', 'choices': ['peaceful', 'easy', 'normal', 'hard']},
+        'gamemode': {'type': 'enum', 'choices': ['survival', 'creative', 'adventure', 'spectator']},
+        'max-players': {'type': 'int', 'min': 1, 'max': 200},
+        'motd': {'type': 'str', 'max_len': 120},
+        'pvp': {'type': 'bool'},
+        'view-distance': {'type': 'int', 'min': 3, 'max': 32},
+        'simulation-distance': {'type': 'int', 'min': 3, 'max': 32},
+        'allow-flight': {'type': 'bool'},
+        'white-list': {'type': 'bool'},
+        'spawn-protection': {'type': 'int', 'min': 0, 'max': 64},
+        'level-seed': {'type': 'str', 'max_len': 64},
+        'online-mode': {'type': 'bool'},
+        'enforce-secure-profile': {'type': 'bool'},
+    }
+
     @staticmethod
-    def ensure_eula() -> None:
-        if not EULA_PATH.exists() or 'eula=true' not in EULA_PATH.read_text(encoding='utf-8', errors='ignore'):
-            EULA_PATH.write_text('eula=true\n', encoding='utf-8')
-
-    @staticmethod
-    def read_server_properties() -> dict:
+    def read_all() -> dict[str, str]:
+        out: dict[str, str] = {}
         if not SERVER_PROPERTIES_PATH.exists():
-            return {}
-        out = {}
+            return out
         for line in SERVER_PROPERTIES_PATH.read_text(encoding='utf-8', errors='ignore').splitlines():
             if not line or line.startswith('#') or '=' not in line:
                 continue
@@ -24,124 +35,57 @@ class ConfigService:
         return out
 
     @staticmethod
-    def load_arx_runtime_config() -> dict:
-        defaults = {
-            'setup_completed': False,
-            'agent_trigger': 'gemma',
-            'gemma_model': 'gemma4:e2b',
-            'gemma_context_size': 8192,
-            'gemma_temperature': 0.2,
-            'gemma_max_reply_chars': 220,
-            'gemma_cooldown_sec': 2.5,
-        }
-        if not ARX_CONFIG_PATH.exists():
-            return defaults
-        try:
-            data = json.loads(ARX_CONFIG_PATH.read_text(encoding='utf-8'))
-            if isinstance(data, dict):
-                defaults.update(data)
-        except Exception:
-            pass
-        return defaults
+    def write_all(values: dict[str, str]) -> None:
+        lines = ['#Minecraft server properties', f'#Updated by dashboard {datetime.now(timezone.utc).isoformat()}']
+        for k in sorted(values.keys()):
+            lines.append(f'{k}={values[k]}')
+        tmp = Path(str(SERVER_PROPERTIES_PATH) + '.tmp')
+        tmp.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        tmp.replace(SERVER_PROPERTIES_PATH)
 
     @staticmethod
-    def save_arx_runtime_config(cfg: dict) -> dict:
-        current = ConfigService.load_arx_runtime_config()
-        current.update(cfg or {})
-        ARX_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ARX_CONFIG_PATH.write_text(json.dumps(current, indent=2), encoding='utf-8')
-        return current
+    def normalize_bool(v: Any) -> str:
+        if isinstance(v, bool):
+            return 'true' if v else 'false'
+        s = str(v).strip().lower()
+        if s in ('1', 'true', 'yes', 'on'):
+            return 'true'
+        if s in ('0', 'false', 'no', 'off'):
+            return 'false'
+        raise ValueError('Invalid boolean')
 
     @staticmethod
-    def validate_runtime_updates(updates: dict) -> dict:
-        clean = {}
+    def validate_updates(updates: dict[str, Any]) -> dict[str, str]:
+        clean: dict[str, str] = {}
+        for key, val in updates.items():
+            spec = PropertiesService.ALLOWED_EDIT_KEYS.get(key)
+            if not spec:
+                raise ValueError(f'Unsupported key: {key}')
 
-        if 'agent_trigger' in updates:
-            t = str(updates['agent_trigger']).strip().lower()
-            if not (2 <= len(t) <= 24) or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_-' for c in t):
-                raise ValueError('agent_trigger must be 2-24 chars [a-z0-9_-]')
-            clean['agent_trigger'] = t
-
-        if 'gemma_model' in updates:
-            m = str(updates['gemma_model']).strip()
-            if ':' not in m or len(m) < 3:
-                raise ValueError('gemma_model must look like name:tag (e.g., gemma4:e2b)')
-            clean['gemma_model'] = m
-
-        if 'gemma_context_size' in updates:
-            c = int(updates['gemma_context_size'])
-            if c < 1024 or c > 131072:
-                raise ValueError('gemma_context_size must be 1024..131072')
-            clean['gemma_context_size'] = c
-
-        if 'gemma_temperature' in updates:
-            t = float(updates['gemma_temperature'])
-            if t < 0 or t > 2:
-                raise ValueError('gemma_temperature must be 0..2')
-            clean['gemma_temperature'] = round(t, 3)
-
-        if 'gemma_max_reply_chars' in updates:
-            m = int(updates['gemma_max_reply_chars'])
-            if m < 80 or m > 500:
-                raise ValueError('gemma_max_reply_chars must be 80..500')
-            clean['gemma_max_reply_chars'] = m
-
-        if 'gemma_cooldown_sec' in updates:
-            cd = float(updates['gemma_cooldown_sec'])
-            if cd < 0 or cd > 30:
-                raise ValueError('gemma_cooldown_sec must be 0..30')
-            clean['gemma_cooldown_sec'] = round(cd, 2)
-
-        if 'setup_completed' in updates:
-            clean['setup_completed'] = bool(updates['setup_completed'])
-
+            t = spec['type']
+            if t == 'enum':
+                s = str(val).strip().lower()
+                if s not in spec['choices']:
+                    raise ValueError(f'Invalid value for {key}')
+                clean[key] = s
+            elif t == 'int':
+                try:
+                    n = int(val)
+                except Exception:
+                    raise ValueError(f'{key} must be integer')
+                if n < spec['min'] or n > spec['max']:
+                    raise ValueError(f'{key} out of range ({spec["min"]}-{spec["max"]})')
+                clean[key] = str(n)
+            elif t == 'bool':
+                clean[key] = PropertiesService.normalize_bool(val)
+            else:
+                s = str(val)
+                if len(s) > spec['max_len']:
+                    raise ValueError(f'{key} too long')
+                clean[key] = s
         return clean
 
-
     @staticmethod
-    def write_server_properties(updates: dict) -> dict:
-        updates = updates or {}
-        allowed = {
-            'motd',
-            'max-players',
-            'difficulty',
-            'pvp',
-            'spawn-protection',
-            'white-list',
-            'online-mode',
-        }
-        clean = {}
-        for k, v in updates.items():
-            key = str(k).strip()
-            if key not in allowed:
-                continue
-            val = str(v).strip()
-            if key in {'max-players', 'spawn-protection'}:
-                n = int(val)
-                if key == 'max-players' and not (1 <= n <= 500):
-                    raise ValueError('max-players must be 1..500')
-                if key == 'spawn-protection' and not (0 <= n <= 64):
-                    raise ValueError('spawn-protection must be 0..64')
-                clean[key] = str(n)
-            elif key in {'pvp', 'white-list', 'online-mode'}:
-                if val.lower() not in {'true', 'false'}:
-                    raise ValueError(f'{key} must be true/false')
-                clean[key] = val.lower()
-            elif key == 'difficulty':
-                if val.lower() not in {'peaceful', 'easy', 'normal', 'hard'}:
-                    raise ValueError('difficulty must be peaceful/easy/normal/hard')
-                clean[key] = val.lower()
-            elif key == 'motd':
-                if len(val) > 120:
-                    raise ValueError('motd max length is 120')
-                clean[key] = val
-
-        current = ConfigService.read_server_properties()
-        current.update(clean)
-
-        lines = []
-        for k in sorted(current.keys()):
-            lines.append(f'{k}={current[k]}')
-        SERVER_PROPERTIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SERVER_PROPERTIES_PATH.write_text("\n".join(lines) + "\n", encoding='utf-8')
-        return current
+    def get_editable_view() -> dict[str, Any]:
+        p = PropertiesService.read_all()
+        return {k: p.get(k, '') for k in PropertiesService.ALLOWED_EDIT_KEYS}
