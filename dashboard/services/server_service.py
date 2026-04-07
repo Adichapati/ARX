@@ -3,6 +3,8 @@ import platform
 import re
 import shlex
 import shutil
+import socket
+import struct
 import subprocess
 import time
 
@@ -37,19 +39,49 @@ class ServerService:
 
     @staticmethod
     def _send_rcon_command(command: str) -> dict:
-        try:
-            import mctools  # type: ignore
-        except Exception:
-            return {'ok': False, 'error': 'RCON bridge unavailable: install mctools in dashboard venv'}
+        """Send command over Minecraft RCON (protocol-level; no third-party dependency)."""
+        host = (RCON_HOST or '127.0.0.1').strip() or '127.0.0.1'
+        port = int(RCON_PORT)
+        password = (RCON_PASSWORD or '').strip()
+        if not password:
+            return {'ok': False, 'error': 'RCON password missing (RCON_PASSWORD)'}
+
+        req_id = int(time.time() * 1000) & 0x7FFFFFFF
+
+        def _pkt(pid: int, ptype: int, body: str) -> bytes:
+            payload = body.encode('utf-8') + b'\x00\x00'
+            size = 4 + 4 + len(payload)
+            return struct.pack('<iii', size, pid, ptype) + payload
+
+        def _recv(sock: socket.socket) -> tuple[int, int, str]:
+            hdr = sock.recv(4)
+            if len(hdr) < 4:
+                raise RuntimeError('RCON read failed (size header)')
+            size = struct.unpack('<i', hdr)[0]
+            data = b''
+            while len(data) < size:
+                chunk = sock.recv(size - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            if len(data) < 8:
+                raise RuntimeError('RCON read failed (payload)')
+            pid, ptype = struct.unpack('<ii', data[:8])
+            body = data[8:-2].decode('utf-8', errors='replace') if len(data) >= 10 else ''
+            return pid, ptype, body
 
         try:
-            mgr = mctools.RCONClient(RCON_HOST, port=RCON_PORT)
-            mgr.login((RCON_PASSWORD or '').strip())
-            _ = mgr.command(command)
-            try:
-                mgr.stop()
-            except Exception:
-                pass
+            with socket.create_connection((host, port), timeout=2.0) as sock:
+                sock.settimeout(2.0)
+                sock.sendall(_pkt(req_id, 3, password))  # auth
+                auth_id, _auth_type, _auth_body = _recv(sock)
+                if auth_id == -1:
+                    return {'ok': False, 'error': 'RCON auth failed (check RCON_PASSWORD)'}
+
+                sock.sendall(_pkt(req_id + 1, 2, command))  # command
+                _cmd_id, _cmd_type, _cmd_body = _recv(sock)
+
+            state['rcon_last_ok_at'] = time.time()
             _console_history.append(command)
             state['last_action'] = f'cmd:{command.split()[0]}'
             state['last_status_note'] = f'command sent (rcon): {command}'
@@ -300,7 +332,18 @@ class ServerService:
         if ServerService._is_windows():
             if not ServerService._is_rcon_configured():
                 return {'ok': False, 'error': 'Console unavailable: RCON not configured'}
-            return ServerService._send_rcon_command(command)
+
+            # RCON can take a few seconds after process startup; retry briefly.
+            last_err = None
+            for _ in range(8):
+                res = ServerService._send_rcon_command(command)
+                if res.get('ok'):
+                    return res
+                last_err = res.get('error', 'RCON command failed')
+                if 'auth failed' in str(last_err).lower():
+                    break
+                time.sleep(0.35)
+            return {'ok': False, 'error': last_err or 'RCON command failed'}
 
         if not ServerService.tmux_session_exists():
             return {'ok': False, 'error': 'Console unavailable (server not in tmux). Restart once from dashboard.'}

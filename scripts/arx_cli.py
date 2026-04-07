@@ -594,9 +594,10 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
         return 0
 
     if action == 'setup':
+        used_url_flag = bool(getattr(args, 'url', ''))
         if getattr(args, 'enable', False):
             _set_env_key('PLAYIT_ENABLED', 'true')
-        if getattr(args, 'url', ''):
+        if used_url_flag:
             _set_env_key('PLAYIT_URL', str(args.url).strip())
 
         ok, msg = _start_playit()
@@ -607,10 +608,8 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
         print('  3) Create a TCP tunnel targeting 127.0.0.1:25565')
         print('  4) Copy your public address (example: your-name.playit.gg:12345)')
         print('  5) Save it locally with: arx tunnel setup --url <address> --enable')
-        if playit_url():
-            print(f'current configured public address: {playit_url()}')
-        else:
-            print('current configured public address: not-set')
+        if used_url_flag:
+            print(f'current configured public address: {playit_url() or str(args.url).strip()}')
         return 0 if ok else 1
 
     if action == 'stop':

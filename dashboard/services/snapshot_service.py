@@ -1,3 +1,4 @@
+import socket
 import subprocess
 
 import psutil
@@ -37,11 +38,27 @@ def public_ip_cached() -> str:
     return _public_ip_cache['value']
 
 
+def _local_lan_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            if ip:
+                return ip
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return '127.0.0.1'
+
+
 def build_snapshot() -> dict:
     vm = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=None)
     mq = ServerService.mc_query()
     ip = public_ip_cached()
+    lan_ip = _local_lan_ip()
 
     _metrics_hist.append({'cpu': round(cpu, 1), 'ram': round(vm.percent, 1), 't': now_ts()})
     _player_hist.append({'players': mq['players_online'], 'running': 1 if ServerService.is_running() else 0, 't': now_ts()})
@@ -50,8 +67,10 @@ def build_snapshot() -> dict:
         'running': ServerService.is_running(),
         'server_info': {
             'host': f'127.0.0.1:{MC_PORT}',
+            'lan': f'{lan_ip}:{MC_PORT}',
             'public': f'{ip}:{MC_PORT}',
-            'connect_address': (PLAYIT_URL.strip() if PLAYIT_URL.strip() else f'{ip}:{MC_PORT}'),
+            'connect_address': (PLAYIT_URL.strip() if PLAYIT_URL.strip() else f'{lan_ip}:{MC_PORT}'),
+            'connect_mode': ('playit' if PLAYIT_URL.strip() else 'lan'),
             'version': mq['version'],
             'players': f"{mq['players_online']}/{mq['players_max']}",
             'players_online': mq['players_online'],

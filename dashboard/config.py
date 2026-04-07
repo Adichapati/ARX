@@ -86,6 +86,7 @@ state: Dict[str, Any] = {
     'last_action': 'none',
     'last_status_note': 'dashboard started',
     'no_player_since': None,
+    'rcon_last_ok_at': 0.0,
 }
 
 _cache: Dict[str, Any] = {
