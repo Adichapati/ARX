@@ -81,9 +81,10 @@ In Minecraft chat (as OP), trigger using `gemma` and verify:
 
 ## 7) GitHub installer path (no domain)
 Use GitHub path until domain is available:
-- Pinned tag (recommended):
-  `https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/vX.Y.Z/install.sh`
-- Main fallback:
-  `https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/main/install.sh`
+- Repo: `https://github.com/Adichapati/openclaw-dashboard-oneclick`
+- Main fallback install.sh path:
+  `https://raw.githubusercontent.com/Adichapati/openclaw-dashboard-oneclick/main/install.sh`
+- Pinned tag format (recommended once tagged):
+  `https://raw.githubusercontent.com/Adichapati/openclaw-dashboard-oneclick/vX.Y.Z/install.sh`
 
-For Windows, users should run `install.bat` from the repository checkout.
+For Windows, clone the repo and run `install.bat` from the checkout.

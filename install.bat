@@ -134,47 +134,7 @@ if "%YES_MODE%"=="0" (
 )
 
 if "%ADMIN_PASS%"=="" set ADMIN_PASS=AutoGenPleaseChange
-set ARX_TMP_PY=%TEMP%\arx_env_gen_%RANDOM%%RANDOM%.py
-(
-  echo import base64, hashlib, secrets, pathlib, os
-  echo def hash_pw(p):
-  echo ^    iters = 120000
-  echo ^    salt = secrets.token_bytes(16)
-  echo ^    out = hashlib.pbkdf2_hmac('sha256', p.encode(), salt, iters)
-  echo ^    return f"pbkdf2_sha256${iters}${base64.b64encode(salt).decode()}${base64.b64encode(out).decode()}"
-  echo root = pathlib.Path('.').resolve()
-  echo admin_user = os.environ.get('ADMIN_USER', 'admin')
-  echo admin_pass = os.environ.get('ADMIN_PASS', '') or secrets.token_urlsafe(10)
-  echo session = secrets.token_urlsafe(32)
-  echo public = secrets.token_urlsafe(24)
-  echo content = f"""BIND_HOST=0.0.0.0
-  echo BIND_PORT={os.environ.get('DASHBOARD_PORT','18890')}
-  echo AUTH_USERNAME={admin_user}
-  echo AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
-  echo SESSION_SECRET={session}
-  echo PUBLIC_READ_ENABLED=false
-  echo PUBLIC_READ_TOKEN={public}
-  echo MC_HOST=127.0.0.1
-  echo MC_PORT=25565
-  echo MC_TMUX_SESSION=mc_server_arx
-  echo GEMMA_ENABLED=true
-  echo GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
-  echo GEMMA_OLLAMA_MODEL={os.environ.get('GEMMA_MODEL','gemma4:e2b')}
-  echo GEMMA_MAX_REPLY_CHARS=220
-  echo GEMMA_COOLDOWN_SEC=2.5
-  echo AGENT_TRIGGER={os.environ.get('AGENT_TRIGGER','gemma')}
-  echo GEMMA_CONTEXT_SIZE=8192
-  echo GEMMA_TEMPERATURE=0.2
-  echo """
-  echo (root / '.env').write_text(content, encoding='utf-8')
-  echo print('Generated .env')
-  echo print(f'Admin username: {admin_user}')
-  echo print(f'Temporary admin password: {admin_pass}')
-  echo print('Change credentials after first login.')
-) > "%ARX_TMP_PY%"
-
-python "%ARX_TMP_PY%" || (echo Failed generating .env & del "%ARX_TMP_PY%" & exit /b 1)
-del "%ARX_TMP_PY%" >nul 2>nul
+python scripts\generate_env.py --output .env --bind-host 0.0.0.0 --bind-port %DASHBOARD_PORT% --admin-user %ADMIN_USER% --admin-pass %ADMIN_PASS% --trigger %AGENT_TRIGGER% --model %GEMMA_MODEL% || (echo Failed generating .env & exit /b 1)
 
 :finish
 echo [ARX 8/8] Install complete.
