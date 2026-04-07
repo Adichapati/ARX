@@ -32,8 +32,25 @@ class ServerService:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(
             "@echo off\r\n"
+            "setlocal\r\n"
             "cd /d %~dp0\r\n"
             "if not exist eula.txt echo eula=true>eula.txt\r\n"
+            "where java >nul 2>nul\r\n"
+            "if errorlevel 1 (\r\n"
+            "  echo [ARX][ERROR] Java not found in PATH. Install Java 21+.\r\n"
+            "  exit /b 1\r\n"
+            ")\r\n"
+            "for /f \"tokens=3\" %%v in ('java -version 2^>^&1 ^| findstr /i \"version\"') do set JAVAVER=%%v\r\n"
+            "set JAVAVER=%JAVAVER:\"=%\r\n"
+            "for /f \"tokens=1 delims=.\" %%m in (\"%JAVAVER%\") do set MAJOR=%%m\r\n"
+            "if \"%MAJOR%\"==\"1\" (\r\n"
+            "  for /f \"tokens=2 delims=.\" %%m in (\"%JAVAVER%\") do set MAJOR=%%m\r\n"
+            ")\r\n"
+            "if %MAJOR% LSS 21 (\r\n"
+            "  echo [ARX][ERROR] Java 21+ required. Detected Java %JAVAVER%.\r\n"
+            "  echo Download: https://adoptium.net/temurin/releases/?version=21\r\n"
+            "  exit /b 1\r\n"
+            ")\r\n"
             "java -Xms1G -Xmx2G -jar server.jar nogui\r\n",
             encoding='utf-8',
         )
@@ -68,6 +85,9 @@ class ServerService:
             ServerService._ensure_windows_start_script()
             script = ServerService._win_script_path()
             cmd = f'cmd /c start "ARX-Minecraft" /D "{MINECRAFT_DIR}" "{script}"'
+            if os.name != 'nt':
+                state['last_status_note'] = 'start failed (windows branch on non-windows host)'
+                return 'failed: windows start is only available on Windows host'
             cp = run(cmd)
             if cp.returncode == 0:
                 state['last_status_note'] = 'start command sent (windows detached process)'

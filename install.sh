@@ -11,6 +11,7 @@ AGENT_TRIGGER=""
 GEMMA_MODEL=""
 GEMMA_CONTEXT_SIZE=""
 GEMMA_TEMPERATURE=""
+MC_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -21,9 +22,10 @@ while [[ $# -gt 0 ]]; do
     --model) GEMMA_MODEL="${2:-}"; shift 2 ;;
     --context-size) GEMMA_CONTEXT_SIZE="${2:-}"; shift 2 ;;
     --temperature) GEMMA_TEMPERATURE="${2:-}"; shift 2 ;;
+    --mc-version) MC_VERSION="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
-      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2]"
+      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2] [--mc-version 1.20.4]"
       exit 1
       ;;
   esac
@@ -413,6 +415,14 @@ prompt_if_needed() {
     fi
   fi
 
+  if [[ -z "$MC_VERSION" ]]; then
+    MC_VERSION="1.20.4"
+    if [[ "$YES_MODE" == false ]]; then
+      _v="$(prompt_with_art "Minecraft Version" "default" "Minecraft version [1.20.4]: ")"
+      MC_VERSION="${_v:-1.20.4}"
+    fi
+  fi
+
   ADMIN_USER="admin"
   ADMIN_PASS=""
   if [[ "$YES_MODE" == false ]]; then
@@ -449,6 +459,8 @@ validate_inputs() {
 
   if ! [[ "$GEMMA_TEMPERATURE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then err "Temperature must be numeric 0..2."; exit 1; fi
   awk -v t="$GEMMA_TEMPERATURE" 'BEGIN{exit (t>=0 && t<=2)?0:1}' || { err "Temperature must be 0..2"; exit 1; }
+
+  if ! [[ "$MC_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then err "Minecraft version must look like 1.20.4"; exit 1; fi
 }
 
 show_summary() {
@@ -459,6 +471,7 @@ show_summary() {
   echo "  Gemma model      : $GEMMA_MODEL"
   echo "  Context size     : $GEMMA_CONTEXT_SIZE"
   echo "  Temperature      : $GEMMA_TEMPERATURE"
+  echo "  Minecraft ver    : $MC_VERSION"
   echo "  Admin user       : $ARX_ADMIN_USER"
 }
 
@@ -479,18 +492,20 @@ download_server_jar() {
     return
   fi
 
-  python3 - <<'PY'
+  python3 - <<PY
 import json, urllib.request, pathlib
 root = pathlib.Path('.').resolve()
 out = root / 'app' / 'minecraft_server' / 'server.jar'
 manifest = json.load(urllib.request.urlopen('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json', timeout=20))
-latest = manifest['latest']['release']
-url = next(v['url'] for v in manifest['versions'] if v['id'] == latest)
+target = '${MC_VERSION}'
+url = next((v['url'] for v in manifest['versions'] if v['id'] == target), None)
+if not url:
+    raise SystemExit(f'Could not resolve Minecraft version: {target}')
 ver = json.load(urllib.request.urlopen(url, timeout=20))
 jar_url = ver['downloads']['server']['url']
 with urllib.request.urlopen(jar_url, timeout=60) as r:
     out.write_bytes(r.read())
-print(f'downloaded {latest} -> {out}')
+print(f'downloaded {target} -> {out}')
 PY
 }
 
@@ -551,7 +566,7 @@ run_step() {
   fi
 }
 
-export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE
+export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE MC_VERSION
 
 banner
 intro_animation

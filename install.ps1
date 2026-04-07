@@ -5,7 +5,8 @@ param(
     [string]$Trigger = 'gemma',
     [string]$Model = 'gemma4:e2b',
     [int]$ContextSize = 8192,
-    [double]$Temperature = 0.2
+    [double]$Temperature = 0.2,
+    [string]$McVersion = '1.20.4'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -259,9 +260,8 @@ function Download-ServerJar {
     if (Test-Path $jarPath) { return }
 
     $manifest = Invoke-RestMethod 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
-    $latest = $manifest.latest.release
-    $version = $manifest.versions | Where-Object { $_.id -eq $latest } | Select-Object -First 1
-    if (-not $version) { throw 'Could not resolve latest Minecraft release metadata.' }
+    $version = $manifest.versions | Where-Object { $_.id -eq $McVersion } | Select-Object -First 1
+    if (-not $version) { throw "Could not resolve Minecraft version '$McVersion'." }
 
     $meta = Invoke-RestMethod $version.url
     Invoke-WebRequest $meta.downloads.server.url -OutFile $jarPath
@@ -273,6 +273,7 @@ function Validate-Inputs {
     if ($Model -notmatch ':') { throw 'Model should look like name:tag (example: gemma4:e2b).' }
     if ($ContextSize -lt 1024 -or $ContextSize -gt 131072) { throw 'Context size must be between 1024 and 131072.' }
     if ($Temperature -lt 0 -or $Temperature -gt 2) { throw 'Temperature must be between 0 and 2.' }
+    if ($McVersion -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw 'Minecraft version must look like 1.20.4.' }
 }
 
 try {
@@ -313,6 +314,7 @@ try {
     Write-Host "  Gemma model      : $Model" -ForegroundColor Cyan
     Write-Host "  Context size     : $ContextSize" -ForegroundColor Cyan
     Write-Host "  Temperature      : $Temperature" -ForegroundColor Cyan
+    Write-Host "  Minecraft ver    : $McVersion" -ForegroundColor Cyan
     Write-Host "  Admin user       : $adminUser" -ForegroundColor Cyan
 
     Show-Transition 'Running installation pipeline'
