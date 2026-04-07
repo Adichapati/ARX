@@ -6,6 +6,7 @@ from ..config import (
     BIND_HOST,
     BIND_PORT,
     MC_PORT,
+    PLAYIT_URL,
     PUBLIC_READ_TOKEN,
     _cache,
     _metrics_hist,
@@ -50,6 +51,7 @@ def build_snapshot() -> dict:
         'server_info': {
             'host': f'127.0.0.1:{MC_PORT}',
             'public': f'{ip}:{MC_PORT}',
+            'connect_address': (PLAYIT_URL.strip() if PLAYIT_URL.strip() else f'{ip}:{MC_PORT}'),
             'version': mq['version'],
             'players': f"{mq['players_online']}/{mq['players_max']}",
             'players_online': mq['players_online'],

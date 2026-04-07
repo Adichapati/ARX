@@ -40,6 +40,28 @@ def cfg(key: str, default: str) -> str:
     return _env_file().get(key, default)
 
 
+def _set_env_key(key: str, value: str) -> None:
+    lines: list[str] = []
+    if ENV_PATH.exists():
+        lines = ENV_PATH.read_text(encoding='utf-8', errors='ignore').splitlines()
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        raw = line.strip()
+        if raw.startswith('#') or '=' not in line:
+            out.append(line)
+            continue
+        k, _v = line.split('=', 1)
+        if k.strip() == key:
+            out.append(f'{key}={value}')
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append(f'{key}={value}')
+    ENV_PATH.write_text('\n'.join(out).rstrip() + '\n', encoding='utf-8')
+
+
 def bind_host() -> str:
     return cfg('BIND_HOST', '0.0.0.0')
 
@@ -227,6 +249,24 @@ def _start_server() -> tuple[bool, str]:
         if not eula.exists():
             eula.write_text('eula=true\n', encoding='utf-8')
 
+        # Ensure Windows runtime has RCON enabled so dashboard console/buttons work.
+        props_path = mc / 'server.properties'
+        props: dict[str, str] = {}
+        if props_path.exists():
+            for line in props_path.read_text(encoding='utf-8', errors='ignore').splitlines():
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, v = line.split('=', 1)
+                props[k.strip()] = v.strip()
+        props['enable-rcon'] = 'true'
+        props['rcon.port'] = cfg('RCON_PORT', '25575')
+        props['rcon.password'] = cfg('RCON_PASSWORD', 'arx-local-rcon')
+        props['broadcast-rcon-to-ops'] = 'false'
+        lines = ['#Minecraft server properties', '#Updated by ARX CLI']
+        for k in sorted(props.keys()):
+            lines.append(f'{k}={props[k]}')
+        props_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
         try:
             with (STATE_DIR / 'server.log').open('ab') as out:
                 subprocess.Popen(
@@ -401,7 +441,7 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx status                  Show status of dashboard/server/ollama/playit')
     print('  arx open                    Open dashboard in default browser')
     print('  arx logs [target]           Show logs (dashboard|server|ollama|playit), default dashboard')
-    print('  arx tunnel setup            Start Playit tunnel agent')
+    print('  arx tunnel setup [--url <addr>] [--enable]  Start Playit tunnel + save URL')
     print('  arx tunnel status           Show Playit tunnel status + configured URL')
     print('  arx tunnel stop             Stop Playit tunnel agent')
     print('  arx version                 Show ARX CLI version')
@@ -554,11 +594,23 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
         return 0
 
     if action == 'setup':
+        if getattr(args, 'enable', False):
+            _set_env_key('PLAYIT_ENABLED', 'true')
+        if getattr(args, 'url', ''):
+            _set_env_key('PLAYIT_URL', str(args.url).strip())
+
         ok, msg = _start_playit()
         print(f'playit: {msg}')
-        if ok:
-            print('Next step: open https://playit.gg, claim agent, and create TCP tunnel to 127.0.0.1:25565')
-            print('Then set PLAYIT_URL in .env for status display (optional).')
+        print('Playit setup guide:')
+        print('  1) Open https://playit.gg and sign in')
+        print('  2) Claim this local agent (if prompted)')
+        print('  3) Create a TCP tunnel targeting 127.0.0.1:25565')
+        print('  4) Copy your public address (example: your-name.playit.gg:12345)')
+        print('  5) Save it locally with: arx tunnel setup --url <address> --enable')
+        if playit_url():
+            print(f'current configured public address: {playit_url()}')
+        else:
+            print('current configured public address: not-set')
         return 0 if ok else 1
 
     if action == 'stop':
@@ -596,6 +648,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     tp = sp.add_parser('tunnel')
     tp.add_argument('action', nargs='?', default='status', choices=('setup', 'status', 'stop'))
+    tp.add_argument('--url', default='', help='Set/update PLAYIT_URL during tunnel setup')
+    tp.add_argument('--enable', action='store_true', help='Set PLAYIT_ENABLED=true during tunnel setup')
 
     sp.add_parser('version')
     sp.add_parser('--help')

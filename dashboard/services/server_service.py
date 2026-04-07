@@ -9,7 +9,17 @@ import time
 import psutil
 from mcstatus import JavaServer
 
-from ..config import MC_HOST, MC_PORT, MINECRAFT_DIR, TMUX_SESSION, _console_history, state
+from ..config import (
+    MC_HOST,
+    MC_PORT,
+    MINECRAFT_DIR,
+    RCON_HOST,
+    RCON_PASSWORD,
+    RCON_PORT,
+    TMUX_SESSION,
+    _console_history,
+    state,
+)
 
 
 def run(cmd: str) -> subprocess.CompletedProcess:
@@ -20,6 +30,32 @@ class ServerService:
     @staticmethod
     def _is_windows() -> bool:
         return platform.system().lower().startswith('win')
+
+    @staticmethod
+    def _is_rcon_configured() -> bool:
+        return bool((RCON_PASSWORD or '').strip())
+
+    @staticmethod
+    def _send_rcon_command(command: str) -> dict:
+        try:
+            import mctools  # type: ignore
+        except Exception:
+            return {'ok': False, 'error': 'RCON bridge unavailable: install mctools in dashboard venv'}
+
+        try:
+            mgr = mctools.RCONClient(RCON_HOST, port=RCON_PORT)
+            mgr.login((RCON_PASSWORD or '').strip())
+            _ = mgr.command(command)
+            try:
+                mgr.stop()
+            except Exception:
+                pass
+            _console_history.append(command)
+            state['last_action'] = f'cmd:{command.split()[0]}'
+            state['last_status_note'] = f'command sent (rcon): {command}'
+            return {'ok': True, 'message': 'Command sent'}
+        except Exception as e:
+            return {'ok': False, 'error': f'RCON command failed: {e}'}
 
     @staticmethod
     def _win_script_path() -> str:
@@ -115,6 +151,24 @@ class ServerService:
             try:
                 os.makedirs(str(MINECRAFT_DIR / 'logs'), exist_ok=True)
                 out = open(MINECRAFT_DIR / 'logs' / 'arx-server.log', 'ab')
+
+                props_path = MINECRAFT_DIR / 'server.properties'
+                props = {}
+                if props_path.exists():
+                    for line in props_path.read_text(encoding='utf-8', errors='ignore').splitlines():
+                        if not line or line.startswith('#') or '=' not in line:
+                            continue
+                        k, v = line.split('=', 1)
+                        props[k.strip()] = v.strip()
+                props['enable-rcon'] = 'true'
+                props['rcon.port'] = str(RCON_PORT)
+                props['rcon.password'] = (RCON_PASSWORD or '').strip() or 'arx-local-rcon'
+                props['broadcast-rcon-to-ops'] = 'false'
+                lines = ['#Minecraft server properties', '#Updated by ARX dashboard']
+                for k in sorted(props.keys()):
+                    lines.append(f'{k}={props[k]}')
+                props_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
                 subprocess.Popen(
                     [java_cmd, '-Xms1G', '-Xmx2G', '-jar', jar, 'nogui'],
                     cwd=str(MINECRAFT_DIR),
@@ -125,7 +179,7 @@ class ServerService:
                     startupinfo=startupinfo,
                     close_fds=True,
                 )
-                state['last_status_note'] = 'start command sent (windows hidden process)'
+                state['last_status_note'] = 'start command sent (windows hidden process + rcon enabled)'
                 return 'started'
             except Exception as e:
                 state['last_status_note'] = 'start failed (windows)'
@@ -220,9 +274,6 @@ class ServerService:
         if not command:
             return {'ok': False, 'error': 'Empty command'}
 
-        if ServerService._is_windows():
-            return {'ok': False, 'error': 'console command passthrough is currently unavailable on native Windows runtime'}
-
         blocked_all = [r'^save-off\s*$']
         blocked_safe = [
             r'^stop\s*$', r'^restart\s*$', r'^op\s+@', r'^deop\s+@', r'^ban\s+@',
@@ -243,8 +294,13 @@ class ServerService:
                     if re.match(pat, command, flags=re.IGNORECASE):
                         return {'ok': False, 'error': 'Blocked in MODERATE mode'}
 
-        if not ServerService.tmux_session_exists() and not ServerService.is_running():
+        if not ServerService.is_running():
             return {'ok': False, 'error': 'Server is not running'}
+
+        if ServerService._is_windows():
+            if not ServerService._is_rcon_configured():
+                return {'ok': False, 'error': 'Console unavailable: RCON not configured'}
+            return ServerService._send_rcon_command(command)
 
         if not ServerService.tmux_session_exists():
             return {'ok': False, 'error': 'Console unavailable (server not in tmux). Restart once from dashboard.'}

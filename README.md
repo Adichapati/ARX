@@ -92,7 +92,7 @@ arx shutdown
 - `arx status` — Show live service status (dashboard/server/ollama/playit)
 - `arx open` — Open dashboard in browser
 - `arx logs [dashboard|server|ollama|playit]` — Tail logs
-- `arx tunnel setup` — Start Playit and complete tunnel claim flow
+- `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
 - `arx tunnel stop` — Stop Playit tunnel agent
 - `arx version` — Print ARX CLI version
@@ -104,7 +104,8 @@ ARX setup now includes Playit enablement for easier public join flow.
 After setup:
 
 ```bash
-arx tunnel setup
+arx tunnel setup --enable
+arx tunnel setup --url your-name.playit.gg:12345 --enable
 arx tunnel status
 arx logs playit --lines 120
 ```

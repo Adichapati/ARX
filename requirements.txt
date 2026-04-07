@@ -5,3 +5,4 @@ psutil
 mcstatus
 itsdangerous
 python-multipart
+mctools

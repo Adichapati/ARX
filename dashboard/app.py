@@ -266,7 +266,7 @@ async def api_whitelist_toggle(request: Request):
     props['enforce-whitelist'] = new_val
     PropertiesService.write_all(props)
 
-    if ServerService.is_running() and ServerService.tmux_session_exists():
+    if ServerService.is_running():
         ServerService.send_console_command(f'whitelist {"on" if new_val=="true" else "off"}', tier='admin')
 
     return {'ok': True, 'message': f'Whitelist now {new_val}'}

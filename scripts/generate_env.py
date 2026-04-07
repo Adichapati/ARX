@@ -60,6 +60,9 @@ GEMMA_CONTEXT_SIZE={context_size}
 GEMMA_TEMPERATURE={temperature}
 PLAYIT_ENABLED={playit_enabled}
 PLAYIT_URL={playit_url}
+RCON_HOST=127.0.0.1
+RCON_PORT=25575
+RCON_PASSWORD=arx-local-rcon
 """
 
     out = Path(args.output)

@@ -104,6 +104,8 @@ pre{background:#fff;border:3px solid var(--ink);border-radius:12px;padding:10px;
 .linkline{margin-top:8px;display:flex;gap:8px;align-items:flex-start}
 .linklabel{font-weight:800;min-width:86px;flex:0 0 86px}
 .linkvalue{flex:1;min-width:0;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;color:#0a4ea3;text-decoration:underline}
+.copyline{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.copybox{font-family:ui-monospace,Consolas,monospace;background:#fff;border:3px solid var(--ink);border-radius:10px;padding:8px 10px;box-shadow:3px 3px 0 var(--ink)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap}.tab{padding:8px 12px;border:3px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-weight:800;box-shadow:3px 3px 0 var(--ink)}.tab.active{background:var(--mint)}
 .panel{display:none}.panel.active{display:block}
 input,select,textarea{width:100%;padding:10px;border-radius:10px;border:3px solid var(--ink);font-size:14px;background:#fff}
@@ -128,7 +130,7 @@ input,select,textarea{width:100%;padding:10px;border-radius:10px;border:3px soli
 <div class='grid3'>
  <div class='card'><span class='tag' style='background:var(--blue)'>CPU</span><div class='big' id='cpu' style='margin-top:8px'>...</div></div>
  <div class='card'><span class='tag' style='background:var(--mint)'>RAM</span><div class='big' id='ram' style='margin-top:8px'>...</div><div class='k mono' id='ramd'></div></div>
- <div class='card'><span class='tag' style='background:var(--pink)'>LINKS</span><div class='mono linkline'><span class='linklabel'>Private:</span><a class='linkvalue' id='plink' href='#' target='_blank'></a></div><div class='mono linkline'><span class='linklabel'>Public RO:</span><a class='linkvalue' id='publicRead' href='#' target='_blank'></a></div></div>
+ <div class='card'><span class='tag' style='background:var(--pink)'>LINKS</span><div class='mono linkline'><span class='linklabel'>Private:</span><a class='linkvalue' id='plink' href='#' target='_blank'></a></div><div class='mono linkline'><span class='linklabel'>Public RO:</span><a class='linkvalue' id='publicRead' href='#' target='_blank'></a></div><div class='copyline'><span class='k'>Server:</span><span id='serverAddress' class='copybox mono'>...</span><button class='btn ghost' onclick='copyServerAddress()'>Copy address</button></div><div id='copyStatus' class='statusline small'></div></div>
 </div>
 
 <div class='card'><div class='tabs'>
@@ -164,7 +166,7 @@ async function api(path,method='GET',body=null){const r=await fetch(path,{method
 async function logout(){await api('/api/logout','POST'); location.href='/login';}
 async function act(a){try{await api('/api/'+a,'POST');}catch(e){st('cmdStatus',e.message,false)}}
 async function toggle(n){try{await api('/api/toggle/'+n,'POST');}catch(e){st('cmdStatus',e.message,false)}}
-function render(d){running.textContent=d.running?'RUNNING':'STOPPED'; running.style.color=d.running?'#0b7f35':'#b00020'; serverinfo.textContent=`${d.server_info.public} | Version: ${d.server_info.version} | Players: ${d.server_info.players}`; cpu.textContent=d.metrics.cpu_percent+'%'; ram.textContent=d.metrics.memory_percent+'%'; ramd.textContent=`${d.metrics.memory_used_gb} GB / ${d.metrics.memory_total_gb} GB`; automsg.textContent=`Auto-start: ${d.automation.auto_start?'ON':'OFF'} | Auto-stop: ${d.automation.auto_stop?'ON':'OFF'} | ${d.automation.last_status_note}`; plink.textContent=d.dashboard.private_link; plink.href=d.dashboard.private_link; publicRead.textContent=d.dashboard.public_readonly_link; publicRead.href=d.dashboard.public_readonly_link; sr.value=d.automation.restart_minutes||0; sb.value=d.automation.backup_minutes||0;}
+function render(d){running.textContent=d.running?'RUNNING':'STOPPED'; running.style.color=d.running?'#0b7f35':'#b00020'; serverinfo.textContent=`${d.server_info.public} | Version: ${d.server_info.version} | Players: ${d.server_info.players}`; cpu.textContent=d.metrics.cpu_percent+'%'; ram.textContent=d.metrics.memory_percent+'%'; ramd.textContent=`${d.metrics.memory_used_gb} GB / ${d.metrics.memory_total_gb} GB`; automsg.textContent=`Auto-start: ${d.automation.auto_start?'ON':'OFF'} | Auto-stop: ${d.automation.auto_stop?'ON':'OFF'} | ${d.automation.last_status_note}`; plink.textContent=d.dashboard.private_link; plink.href=d.dashboard.private_link; publicRead.textContent=d.dashboard.public_readonly_link; publicRead.href=d.dashboard.public_readonly_link; serverAddress.textContent=d.server_info.connect_address || d.server_info.public || '127.0.0.1:25565'; sr.value=d.automation.restart_minutes||0; sb.value=d.automation.backup_minutes||0;}
 function ap(chunk){if(!chunk)return; logs.textContent+=chunk; if(logs.textContent.length>70000) logs.textContent=logs.textContent.slice(-50000); logs.scrollTop=logs.scrollHeight;}
 async function wsconn(){try{const t=await api('/api/ws-ticket'); const scheme=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${scheme}://${location.host}/ws?ticket=${encodeURIComponent(t.ticket)}`); ws.onmessage=(ev)=>{try{const m=JSON.parse(ev.data); if(m.type==='snapshot') render(m.data); if(m.type==='log') ap(m.chunk||'');}catch(_){}}; ws.onclose=()=>setTimeout(wsconn,2000);}catch(_){setTimeout(wsconn,3000)}}
 
@@ -196,6 +198,20 @@ function renderOnlinePlayers(players){
 async function wlt(){try{await api('/api/players/whitelist/toggle','POST'); lp();}catch(e){st('cmdStatus',e.message,false)}}
 async function lp(){try{const r=await api('/api/players/state'); plist.textContent=`WL:${r.whitelist_enabled} | Ops: ${r.ops.join(', ')||'none'} | WL: ${r.whitelist.join(', ')||'none'} | Banned: ${r.banned.join(', ')||'none'} | Online: ${r.online_count||0}`; renderOnlinePlayers(r.online_players||[]);}catch(_){}}
 async function sc(){try{await api('/api/console/send','POST',{command:cmd.value,tier:cmdTier.value}); cmd.value=''; st('cmdStatus','command sent',true);}catch(e){st('cmdStatus',e.message,false)}}
+async function copyServerAddress(){
+  const txt=(serverAddress.textContent||'').trim();
+  if(!txt){ st('copyStatus','No server address yet',false); return; }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(txt);
+    }else{
+      const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    st('copyStatus',`Copied: ${txt}`,true);
+  }catch(e){
+    st('copyStatus','Copy failed. Select and copy manually.',false);
+  }
+}
 async function sp(){try{await api('/api/properties','POST',{updates:{difficulty:p_difficulty.value,gamemode:p_gamemode.value,'max-players':p_max.value,motd:p_motd.value,'online-mode':p_online_mode.value,'enforce-secure-profile':p_secure_profile.value}}); st('pstat','saved (restart server to apply auth mode changes)',true);}catch(e){st('pstat',e.message,false)}}
 async function lpv(){try{const p=await api('/api/properties'); p_difficulty.value=p.values['difficulty']||'normal'; p_gamemode.value=p.values['gamemode']||'survival'; p_max.value=p.values['max-players']||20; p_motd.value=p.values['motd']||''; p_online_mode.value=p.values['online-mode']||'true'; p_secure_profile.value=p.values['enforce-secure-profile']||'true';}catch(_){}}
 async function cb(){try{const r=await api('/api/world/backup','POST'); st('wstat',r.message,true); rb();}catch(e){st('wstat',e.message,false)}}
