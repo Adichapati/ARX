@@ -7,6 +7,8 @@ set FORCE_ENV=0
 set DASHBOARD_PORT=
 set AGENT_TRIGGER=
 set GEMMA_MODEL=
+set GEMMA_CONTEXT_SIZE=
+set GEMMA_TEMPERATURE=
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -38,6 +40,18 @@ if /I "%~1"=="--model" (
   shift
   goto parse_args
 )
+if /I "%~1"=="--context-size" (
+  set GEMMA_CONTEXT_SIZE=%~2
+  shift
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--temperature" (
+  set GEMMA_TEMPERATURE=%~2
+  shift
+  shift
+  goto parse_args
+)
 echo Unknown flag: %~1
 exit /b 1
 
@@ -45,6 +59,8 @@ exit /b 1
 if "%DASHBOARD_PORT%"=="" set DASHBOARD_PORT=18890
 if "%AGENT_TRIGGER%"=="" set AGENT_TRIGGER=gemma
 if "%GEMMA_MODEL%"=="" set GEMMA_MODEL=gemma4:e2b
+if "%GEMMA_CONTEXT_SIZE%"=="" set GEMMA_CONTEXT_SIZE=8192
+if "%GEMMA_TEMPERATURE%"=="" set GEMMA_TEMPERATURE=0.2
 
 for /f "delims=0123456789" %%A in ("%DASHBOARD_PORT%") do (
   echo Invalid --port value. Must be numeric.
@@ -140,6 +156,8 @@ set ARX_ADMIN_USER=%ADMIN_USER%
 set ARX_ADMIN_PASS=%ADMIN_PASS%
 set ARX_TRIGGER=%AGENT_TRIGGER%
 set ARX_MODEL=%GEMMA_MODEL%
+set ARX_CONTEXT_SIZE=%GEMMA_CONTEXT_SIZE%
+set ARX_TEMPERATURE=%GEMMA_TEMPERATURE%
 python scripts\generate_env.py --output .env || (echo Failed generating .env & exit /b 1)
 
 :finish

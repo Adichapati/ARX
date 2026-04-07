@@ -9,32 +9,28 @@ FORCE_ENV=false
 DASHBOARD_PORT=""
 AGENT_TRIGGER=""
 GEMMA_MODEL=""
+GEMMA_CONTEXT_SIZE=""
+GEMMA_TEMPERATURE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes|-y)
-      YES_MODE=true
-      shift
-      ;;
+      YES_MODE=true; shift ;;
     --force-env)
-      FORCE_ENV=true
-      shift
-      ;;
+      FORCE_ENV=true; shift ;;
     --port)
-      DASHBOARD_PORT="${2:-}"
-      shift 2
-      ;;
+      DASHBOARD_PORT="${2:-}"; shift 2 ;;
     --trigger)
-      AGENT_TRIGGER="${2:-}"
-      shift 2
-      ;;
+      AGENT_TRIGGER="${2:-}"; shift 2 ;;
     --model)
-      GEMMA_MODEL="${2:-}"
-      shift 2
-      ;;
+      GEMMA_MODEL="${2:-}"; shift 2 ;;
+    --context-size)
+      GEMMA_CONTEXT_SIZE="${2:-}"; shift 2 ;;
+    --temperature)
+      GEMMA_TEMPERATURE="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
-      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b]"
+      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2]"
       exit 1
       ;;
   esac
@@ -43,6 +39,22 @@ done
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 log() { echo "[ARX] $*"; }
 err() { echo "[ARX][ERROR] $*" >&2; }
+
+banner() {
+cat <<'EOF'
+
+ █████╗ ██████╗ ██╗  ██╗
+██╔══██╗██╔══██╗╚██╗██╔╝
+███████║██████╔╝ ╚███╔╝
+██╔══██║██╔══██╗ ██╔██╗
+██║  ██║██║  ██║██╔╝ ██╗
+╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+
+Agentic Runtime for eXecution — OpenClaw-style setup
+EOF
+}
+
+phase(){ echo; echo "[ARX][PHASE] $*"; }
 
 OS="$(uname -s)"
 case "$OS" in
@@ -70,28 +82,17 @@ install_pkg_linux() {
 
 install_prereqs() {
   log "Checking base dependencies..."
-
-  if ! need_cmd python3; then
-    err "python3 is required. Install Python 3.11+ and retry."
-    exit 1
-  fi
+  if ! need_cmd python3; then err "python3 is required. Install Python 3.11+ and retry."; exit 1; fi
 
   if ! need_cmd java; then
     log "Installing Java runtime..."
     if [[ "$PLATFORM" == "linux" ]]; then
-      install_pkg_linux openjdk-21-jre-headless || install_pkg_linux java-21-openjdk-headless || {
-        err "Could not install Java automatically. Install Java 21+ manually."; exit 1;
-      }
+      install_pkg_linux openjdk-21-jre-headless || install_pkg_linux java-21-openjdk-headless || { err "Could not install Java automatically. Install Java 21+ manually."; exit 1; }
     elif [[ "$PLATFORM" == "macos" ]]; then
-      if need_cmd brew; then
-        brew install openjdk@21
-      else
-        err "Homebrew required for auto-install on macOS. Install Java 21+ manually."
-        exit 1
-      fi
+      need_cmd brew || { err "Homebrew required for auto-install on macOS. Install Java 21+ manually."; exit 1; }
+      brew install openjdk@21
     else
-      err "Unsupported OS for auto-install. Install Java 21+ manually."
-      exit 1
+      err "Unsupported OS for auto-install. Install Java 21+ manually."; exit 1
     fi
   fi
 
@@ -100,15 +101,10 @@ install_prereqs() {
     if [[ "$PLATFORM" == "linux" ]]; then
       install_pkg_linux tmux || { err "Failed to install tmux."; exit 1; }
     elif [[ "$PLATFORM" == "macos" ]]; then
-      if need_cmd brew; then
-        brew install tmux
-      else
-        err "Homebrew required for auto-install on macOS. Install tmux manually."
-        exit 1
-      fi
+      need_cmd brew || { err "Homebrew required for auto-install on macOS. Install tmux manually."; exit 1; }
+      brew install tmux
     else
-      err "Unsupported OS for auto-install. Install tmux manually."
-      exit 1
+      err "Unsupported OS for auto-install. Install tmux manually."; exit 1
     fi
   fi
 
@@ -117,30 +113,22 @@ install_prereqs() {
     if [[ "$PLATFORM" == "linux" ]]; then
       install_pkg_linux curl || { err "Failed to install curl."; exit 1; }
     elif [[ "$PLATFORM" == "macos" ]]; then
-      if need_cmd brew; then
-        brew install curl
-      else
-        err "Homebrew required for auto-install on macOS. Install curl manually."
-        exit 1
-      fi
+      need_cmd brew || { err "Homebrew required for auto-install on macOS. Install curl manually."; exit 1; }
+      brew install curl
     else
-      err "Unsupported OS for auto-install. Install curl manually."
-      exit 1
+      err "Unsupported OS for auto-install. Install curl manually."; exit 1
     fi
   fi
 }
 
 ensure_ollama() {
   log "Checking Ollama..."
-
   if ! need_cmd ollama; then
     log "Ollama not found. Installing for $PLATFORM..."
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
       curl -fsSL https://ollama.com/install.sh | sh
     else
-      err "Unsupported OS for automatic Ollama install in install.sh."
-      err "Use Windows install.bat on Windows."
-      exit 1
+      err "Unsupported OS for automatic Ollama install in install.sh."; err "Use Windows install.bat on Windows."; exit 1
     fi
   fi
 
@@ -171,26 +159,27 @@ ensure_ollama() {
 prompt_if_needed() {
   if [[ -z "$DASHBOARD_PORT" ]]; then
     DASHBOARD_PORT="18890"
-    if [[ "$YES_MODE" == false ]]; then
-      read -rp "Dashboard port [18890]: " _p
-      DASHBOARD_PORT="${_p:-18890}"
-    fi
+    if [[ "$YES_MODE" == false ]]; then read -rp "Dashboard port [18890]: " _p; DASHBOARD_PORT="${_p:-18890}"; fi
   fi
 
   if [[ -z "$AGENT_TRIGGER" ]]; then
     AGENT_TRIGGER="gemma"
-    if [[ "$YES_MODE" == false ]]; then
-      read -rp "Agent trigger word [gemma]: " _t
-      AGENT_TRIGGER="${_t:-gemma}"
-    fi
+    if [[ "$YES_MODE" == false ]]; then read -rp "Agent trigger word [gemma]: " _t; AGENT_TRIGGER="${_t:-gemma}"; fi
   fi
 
   if [[ -z "$GEMMA_MODEL" ]]; then
     GEMMA_MODEL="gemma4:e2b"
-    if [[ "$YES_MODE" == false ]]; then
-      read -rp "Gemma model [gemma4:e2b]: " _m
-      GEMMA_MODEL="${_m:-gemma4:e2b}"
-    fi
+    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma model [gemma4:e2b]: " _m; GEMMA_MODEL="${_m:-gemma4:e2b}"; fi
+  fi
+
+  if [[ -z "$GEMMA_CONTEXT_SIZE" ]]; then
+    GEMMA_CONTEXT_SIZE="8192"
+    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma context size [8192]: " _c; GEMMA_CONTEXT_SIZE="${_c:-8192}"; fi
+  fi
+
+  if [[ -z "$GEMMA_TEMPERATURE" ]]; then
+    GEMMA_TEMPERATURE="0.2"
+    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma temperature [0.2]: " _tt; GEMMA_TEMPERATURE="${_tt:-0.2}"; fi
   fi
 
   ADMIN_USER="admin"
@@ -198,7 +187,7 @@ prompt_if_needed() {
   if [[ "$YES_MODE" == false ]]; then
     read -rp "Admin username [admin]: " _u
     ADMIN_USER="${_u:-admin}"
-    read -rsp "Admin password (leave blank to auto-generate): " _pw
+    read -rsp "Admin password - leave blank to auto-generate: " _pw
     echo
     ADMIN_PASS="${_pw:-}"
   fi
@@ -208,41 +197,40 @@ prompt_if_needed() {
 }
 
 validate_inputs() {
-  if ! [[ "$DASHBOARD_PORT" =~ ^[0-9]+$ ]]; then
-    err "Port must be numeric. Got: $DASHBOARD_PORT"
-    exit 1
-  fi
-  if (( DASHBOARD_PORT < 1024 || DASHBOARD_PORT > 65535 )); then
-    err "Port must be between 1024 and 65535. Got: $DASHBOARD_PORT"
-    exit 1
-  fi
+  if ! [[ "$DASHBOARD_PORT" =~ ^[0-9]+$ ]]; then err "Port must be numeric. Got: $DASHBOARD_PORT"; exit 1; fi
+  if (( DASHBOARD_PORT < 1024 || DASHBOARD_PORT > 65535 )); then err "Port must be between 1024 and 65535. Got: $DASHBOARD_PORT"; exit 1; fi
 
   AGENT_TRIGGER="$(echo "$AGENT_TRIGGER" | tr '[:upper:]' '[:lower:]')"
-  if ! [[ "$AGENT_TRIGGER" =~ ^[a-z0-9_-]{2,24}$ ]]; then
-    err "Trigger must match [a-z0-9_-]{2,24}. Got: $AGENT_TRIGGER"
-    exit 1
-  fi
+  if ! [[ "$AGENT_TRIGGER" =~ ^[a-z0-9_-]{2,24}$ ]]; then err "Trigger must match [a-z0-9_-]{2,24}. Got: $AGENT_TRIGGER"; exit 1; fi
 
-  if [[ -z "$GEMMA_MODEL" ]]; then
-    err "Model cannot be empty."
-    exit 1
-  fi
-  if [[ "$GEMMA_MODEL" != *:* ]]; then
-    err "Model should look like 'name:tag' (e.g., gemma4:e2b). Got: $GEMMA_MODEL"
-    exit 1
-  fi
+  if [[ -z "$GEMMA_MODEL" ]]; then err "Model cannot be empty."; exit 1; fi
+  if [[ "$GEMMA_MODEL" != *:* ]]; then err "Model should look like 'name:tag' (e.g., gemma4:e2b). Got: $GEMMA_MODEL"; exit 1; fi
 
-  if ! [[ "$ARX_ADMIN_USER" =~ ^[a-zA-Z0-9_.-]{3,32}$ ]]; then
-    err "Admin username must match [a-zA-Z0-9_.-]{3,32}. Got: $ARX_ADMIN_USER"
-    exit 1
-  fi
+  if ! [[ "$ARX_ADMIN_USER" =~ ^[a-zA-Z0-9_.-]{3,32}$ ]]; then err "Admin username must match [a-zA-Z0-9_.-]{3,32}. Got: $ARX_ADMIN_USER"; exit 1; fi
+
+  if ! [[ "$GEMMA_CONTEXT_SIZE" =~ ^[0-9]+$ ]]; then err "Context size must be numeric."; exit 1; fi
+  if (( GEMMA_CONTEXT_SIZE < 1024 || GEMMA_CONTEXT_SIZE > 131072 )); then err "Context size must be 1024..131072."; exit 1; fi
+
+  if ! [[ "$GEMMA_TEMPERATURE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then err "Temperature must be numeric 0..2."; exit 1; fi
+  awk -v t="$GEMMA_TEMPERATURE" 'BEGIN{exit (t>=0 && t<=2)?0:1}' || { err "Temperature must be 0..2"; exit 1; }
+}
+
+show_summary() {
+  echo
+  echo "[ARX] Setup Summary"
+  echo "  Platform         : $PLATFORM"
+  echo "  Dashboard port   : $DASHBOARD_PORT"
+  echo "  Trigger          : $AGENT_TRIGGER"
+  echo "  Gemma model      : $GEMMA_MODEL"
+  echo "  Context size     : $GEMMA_CONTEXT_SIZE"
+  echo "  Temperature      : $GEMMA_TEMPERATURE"
+  echo "  Admin user       : $ARX_ADMIN_USER"
+  echo
 }
 
 setup_python() {
   log "Setting up Python environment..."
-  if [[ ! -d .venv ]]; then
-    python3 -m venv .venv
-  fi
+  if [[ ! -d .venv ]]; then python3 -m venv .venv; fi
   # shellcheck disable=SC1091
   source .venv/bin/activate
   python -m pip install --upgrade pip
@@ -283,66 +271,52 @@ write_env() {
   fi
 
   log "Generating secure .env..."
+  ARX_BIND_HOST="0.0.0.0"   ARX_BIND_PORT="$DASHBOARD_PORT"   ARX_ADMIN_USER="$ARX_ADMIN_USER"   ARX_ADMIN_PASS="$ARX_ADMIN_PASS"   ARX_TRIGGER="$AGENT_TRIGGER"   ARX_MODEL="$GEMMA_MODEL"   ARX_CONTEXT_SIZE="$GEMMA_CONTEXT_SIZE"   ARX_TEMPERATURE="$GEMMA_TEMPERATURE"   python3 scripts/generate_env.py --output .env
+}
+
+write_runtime_setup() {
   python3 - <<'PY'
-import base64, hashlib, secrets, pathlib, os
-
-def hash_pw(p: str) -> str:
-    iters = 120000
-    salt = secrets.token_bytes(16)
-    out = hashlib.pbkdf2_hmac('sha256', p.encode(), salt, iters)
-    return f"pbkdf2_sha256${iters}${base64.b64encode(salt).decode()}${base64.b64encode(out).decode()}"
-
-root = pathlib.Path('.').resolve()
-admin_user = os.environ.get('ARX_ADMIN_USER', 'admin')
-admin_pass = os.environ.get('ARX_ADMIN_PASS', '') or secrets.token_urlsafe(10)
-session = secrets.token_urlsafe(32)
-public = secrets.token_urlsafe(24)
-port = os.environ.get('DASHBOARD_PORT', '18890')
-trigger = os.environ.get('AGENT_TRIGGER', 'gemma')
-model = os.environ.get('GEMMA_MODEL', 'gemma4:e2b')
-
-content = f"""BIND_HOST=0.0.0.0
-BIND_PORT={port}
-AUTH_USERNAME={admin_user}
-AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
-SESSION_SECRET={session}
-PUBLIC_READ_ENABLED=false
-PUBLIC_READ_TOKEN={public}
-MC_HOST=127.0.0.1
-MC_PORT=25565
-MC_TMUX_SESSION=mc_server_arx
-GEMMA_ENABLED=true
-GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
-GEMMA_OLLAMA_MODEL={model}
-GEMMA_MAX_REPLY_CHARS=220
-GEMMA_COOLDOWN_SEC=2.5
-AGENT_TRIGGER={trigger}
-GEMMA_CONTEXT_SIZE=8192
-GEMMA_TEMPERATURE=0.2
-"""
-(root / '.env').write_text(content, encoding='utf-8')
-print('Generated .env')
-print(f'Admin username: {admin_user}')
-print(f'Temporary admin password: {admin_pass}')
-print('Change credentials after first login.')
+import json
+from pathlib import Path
+import os
+p = Path('state/arx_config.json')
+p.parent.mkdir(parents=True, exist_ok=True)
+obj = {
+  'setup_completed': True,
+  'agent_trigger': os.environ.get('AGENT_TRIGGER','gemma'),
+  'gemma_model': os.environ.get('GEMMA_MODEL','gemma4:e2b'),
+  'gemma_context_size': int(os.environ.get('GEMMA_CONTEXT_SIZE','8192')),
+  'gemma_temperature': float(os.environ.get('GEMMA_TEMPERATURE','0.2')),
+  'gemma_max_reply_chars': 220,
+  'gemma_cooldown_sec': 2.5,
+}
+p.write_text(json.dumps(obj, indent=2), encoding='utf-8')
+print('Wrote state/arx_config.json')
 PY
 }
 
 finalize() {
-  chmod +x app/minecraft_server/start.sh scripts/start_dashboard.sh install.sh || true
+  chmod +x app/minecraft_server/start.sh scripts/start_dashboard.sh install.sh scripts/generate_env.py || true
   log "Installation complete."
   log "Run: ./scripts/start_dashboard.sh"
   log "Dashboard URL: http://localhost:${DASHBOARD_PORT}/"
+  log "You can now join server and use trigger '${AGENT_TRIGGER}' to talk to Gemma."
 }
 
-export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL
+export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE
 
+banner
+phase "Interactive Setup"
 prompt_if_needed
 validate_inputs
+show_summary
+
+phase "System Preparation"
 install_prereqs
 setup_python
 ensure_ollama
 setup_files
 download_server_jar
 write_env
+write_runtime_setup
 finalize

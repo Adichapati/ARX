@@ -28,7 +28,7 @@ Interactive:
 
 Non-interactive (recommended for repeatable test):
 ```powershell
-.\install.bat --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b
+.\install.bat --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 12288 --temperature 0.15
 ```
 
 Expected outcomes:

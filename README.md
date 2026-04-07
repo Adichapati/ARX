@@ -57,6 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/main/install.
 ```bash
 cd /root/openclaw-dashboard-oneclick
 ./install.sh
+# or non-interactive:
+./install.sh --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 12288 --temperature 0.15
 ./scripts/start_dashboard.sh
 ```
 

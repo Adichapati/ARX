@@ -31,6 +31,8 @@ def main() -> int:
     admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '') or secrets.token_urlsafe(10)
     trigger = args.trigger or os.environ.get('ARX_TRIGGER', 'gemma')
     model = args.model or os.environ.get('ARX_MODEL', 'gemma4:e2b')
+    context_size = os.environ.get('ARX_CONTEXT_SIZE', '8192')
+    temperature = os.environ.get('ARX_TEMPERATURE', '0.2')
 
     content = f"""BIND_HOST={bind_host}
 BIND_PORT={bind_port}
@@ -48,8 +50,8 @@ GEMMA_OLLAMA_MODEL={model}
 GEMMA_MAX_REPLY_CHARS=220
 GEMMA_COOLDOWN_SEC=2.5
 AGENT_TRIGGER={trigger}
-GEMMA_CONTEXT_SIZE=8192
-GEMMA_TEMPERATURE=0.2
+GEMMA_CONTEXT_SIZE={context_size}
+GEMMA_TEMPERATURE={temperature}
 """
 
     out = Path(args.output)
