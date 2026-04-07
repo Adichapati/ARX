@@ -20,6 +20,7 @@ from .config import (
 from .services.config_service import ConfigService
 from .services.log_service import LogService
 from .services.op_assist_service import OpAssistService
+from .services.player_service import PlayerService
 from .services.server_service import ServerService
 from .ui import dash_html, login_html
 
@@ -146,6 +147,7 @@ async def api_setup_set(request: Request):
     cfg = ConfigService.save_arx_runtime_config(clean)
     return {'ok': True, 'config': cfg}
 
+
 @app.post('/api/console/send')
 async def api_console_send(request: Request):
     require_session(request)
@@ -181,6 +183,51 @@ async def api_server_props_set(request: Request):
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400)
     return {'ok': True, 'properties': props}
+
+
+@app.get('/api/players')
+async def api_players(request: Request):
+    require_session(request)
+    return {'ok': True, **PlayerService.snapshot()}
+
+
+@app.post('/api/players/op')
+async def api_players_op(request: Request):
+    require_session(request)
+    data = await request.json()
+    action = str(data.get('action', '')).strip().lower()
+    username = str(data.get('username', '')).strip()
+    sync_runtime = bool(data.get('sync_runtime', True))
+    try:
+        if action == 'add':
+            ops = PlayerService.add_op(username, sync_runtime=sync_runtime)
+        elif action == 'remove':
+            ops = PlayerService.remove_op(username, sync_runtime=sync_runtime)
+        else:
+            return JSONResponse({'error': 'action must be add/remove'}, status_code=400)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    return {'ok': True, 'ops': ops}
+
+
+@app.post('/api/players/whitelist')
+async def api_players_whitelist(request: Request):
+    require_session(request)
+    data = await request.json()
+    action = str(data.get('action', '')).strip().lower()
+    username = str(data.get('username', '')).strip()
+    sync_runtime = bool(data.get('sync_runtime', True))
+    try:
+        if action == 'add':
+            wl = PlayerService.add_whitelist(username, sync_runtime=sync_runtime)
+        elif action == 'remove':
+            wl = PlayerService.remove_whitelist(username, sync_runtime=sync_runtime)
+        else:
+            return JSONResponse({'error': 'action must be add/remove'}, status_code=400)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    return {'ok': True, 'whitelist': wl}
+
 
 @app.get('/api/ws-ticket')
 async def api_ws_ticket(request: Request):

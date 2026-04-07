@@ -34,9 +34,9 @@ Exit criteria:
 - [x] Add runtime health card (Ollama/tmux/java/server ping)
 - [x] Add first-run setup/tuning UI for Gemma context size and related local inference settings
 - [x] Add editable key `server.properties` controls in dashboard
-- [ ] Add OP/whitelist management panel
-- [ ] Add better unauth/error state UX in frontend
-- [ ] Ensure websocket reconnect and buffer limits are stable
+- [x] Add OP/whitelist management panel
+- [x] Add better unauth/error state UX in frontend
+- [x] Ensure websocket reconnect and buffer limits are stable
 
 Exit criteria:
 - User can fully operate server lifecycle and key settings from browser.

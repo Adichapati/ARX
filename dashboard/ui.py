@@ -32,15 +32,22 @@ def dash_html() -> str:
 body{font-family:Inter,system-ui,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:16px}
 .card{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:14px;margin-bottom:12px}
 button{padding:8px 12px;margin-right:8px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer}
-.ok{color:#86efac}.bad{color:#fca5a5}
+.ok{color:#86efac}.bad{color:#fca5a5}.warn{color:#fcd34d}
 #console-window{background:#000;padding:10px;border-radius:8px;max-height:52vh;overflow:auto;white-space:pre-wrap}
 input,select{padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
 input{width:70%}
 #setupPanel{display:none}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.listbox{background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;max-height:140px;overflow:auto}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #334155;margin:2px;font-size:12px}
+#errorBanner{display:none;background:#7f1d1d;border:1px solid #ef4444;color:#fecaca;padding:10px;border-radius:10px;margin-bottom:12px}
+#wsState{font-size:12px}
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
 </style></head><body>
+<div id='errorBanner'></div>
+
 <div class='card'><h2>ARX Ops Dashboard</h2><div id='status'>Loading...</div>
+<div id='wsState' class='warn'>WebSocket: connecting...</div>
 <button onclick="act('start')">Start</button><button onclick="act('stop')">Stop</button><button onclick="act('restart')">Restart</button>
 <button onclick='logout()'>Logout</button></div>
 
@@ -72,6 +79,35 @@ input{width:70%}
 </div>
 
 <div class='card'>
+  <h3>Player Access (OP + Whitelist)</h3>
+  <div class='grid'>
+    <div>
+      <label>OP username</label><br>
+      <input id='op_user' style='width:100%' placeholder='PlayerName'>
+      <div style='margin-top:8px'>
+        <button onclick="opAction('add')">Add OP</button>
+        <button onclick="opAction('remove')">Remove OP</button>
+      </div>
+      <div id='op_msg'></div>
+      <div><b>Known OPs</b></div>
+      <div id='op_list' class='listbox'></div>
+    </div>
+    <div>
+      <label>Whitelist username</label><br>
+      <input id='wl_user' style='width:100%' placeholder='PlayerName'>
+      <div style='margin-top:8px'>
+        <button onclick="wlAction('add')">Add Whitelist</button>
+        <button onclick="wlAction('remove')">Remove Whitelist</button>
+      </div>
+      <div id='wl_msg'></div>
+      <div><b>Whitelist</b></div>
+      <div id='wl_list' class='listbox'></div>
+    </div>
+  </div>
+  <div style='margin-top:10px'><b>Online players:</b> <span id='online_players'></span></div>
+</div>
+
+<div class='card'>
   <h3>Server Properties</h3>
   <div class='grid'>
     <div><label>MOTD</label><br><input id='sp_motd' style='width:100%'></div>
@@ -94,20 +130,44 @@ input{width:70%}
   <pre id='console-window'>Connecting...</pre>
 </div>
 <script>
+let wsBackoffMs = 2000;
+
+function showError(msg){
+  errorBanner.textContent = msg || 'Unknown error';
+  errorBanner.style.display = 'block';
+}
+function clearError(){ errorBanner.style.display = 'none'; }
+
 async function api(path, method='GET', body=null){
-  const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});
-  if(r.status===401){location.href='/login'; throw new Error('unauthorized');}
+  let r;
+  try{
+    r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});
+  }catch(e){
+    showError('Network error. Check server connection.');
+    throw e;
+  }
+  if(r.status===401){
+    showError('Session expired. Redirecting to login...');
+    setTimeout(()=>location.href='/login', 800);
+    throw new Error('unauthorized');
+  }
   const j=await r.json().catch(()=>({error:'request failed'}));
-  if(!r.ok) throw new Error(j.error||'request failed');
+  if(!r.ok){
+    showError(j.error||'request failed');
+    throw new Error(j.error||'request failed');
+  }
+  clearError();
   return j;
 }
+
 async function loadState(){
   const s=await api('/api/state');
   status.innerHTML=`<span class='${s.running?'ok':'bad'}'>${s.running?'RUNNING':'STOPPED'}</span> | ${s.server_info.public} | ${s.server_info.players}`;
 }
-async function act(a){try{await api('/api/'+a,'POST'); await loadState();}catch(e){cmdmsg.textContent=e.message;}}
-async function sendCmd(){try{const r=await api('/api/console/send','POST',{command:cmd.value}); cmd.value=''; cmdmsg.textContent=r.message;}catch(e){cmdmsg.textContent=e.message;}}
-async function logout(){await api('/api/logout','POST'); location.href='/login';}
+
+async function act(a){ try{ await api('/api/'+a,'POST'); await loadState(); }catch(e){ cmdmsg.textContent=e.message; } }
+async function sendCmd(){ try{ const r=await api('/api/console/send','POST',{command:cmd.value}); cmd.value=''; cmdmsg.textContent=r.message; }catch(e){ cmdmsg.textContent=e.message; } }
+async function logout(){ await api('/api/logout','POST'); location.href='/login'; }
 
 async function loadSetup(){
   try{
@@ -141,7 +201,7 @@ async function saveSetup(){
       gemma_cooldown_sec: Number(cfg_cooldown.value),
       setup_completed: true,
     };
-    const r = await api('/api/setup/config','POST',{updates});
+    await api('/api/setup/config','POST',{updates});
     setupMsg.textContent='Saved.';
     setupMsg.className='ok';
     setupPanel.style.display='none';
@@ -160,6 +220,50 @@ async function loadHealth(){
     h_ping.textContent = h.server_ping;
   }catch(e){
     h_ollama.textContent = h_tmux.textContent = h_java.textContent = h_ping.textContent = 'error';
+  }
+}
+
+function renderBadges(el, arr){
+  const data = Array.isArray(arr) ? arr : [];
+  el.innerHTML = data.length ? data.map(x=>`<span class='badge'>${x}</span>`).join('') : "<span class='warn'>none</span>";
+}
+
+async function loadPlayers(){
+  try{
+    const r = await api('/api/players');
+    renderBadges(op_list, r.ops || []);
+    renderBadges(wl_list, r.whitelist || []);
+    const online = Array.isArray(r.online) ? r.online : [];
+    online_players.textContent = online.length ? online.join(', ') : 'none';
+  }catch(e){
+    op_msg.textContent = wl_msg.textContent = e.message;
+    op_msg.className = wl_msg.className = 'bad';
+  }
+}
+
+async function opAction(action){
+  try{
+    const username = op_user.value.trim();
+    await api('/api/players/op','POST',{action, username, sync_runtime:true});
+    op_msg.textContent = `OP ${action} ok`;
+    op_msg.className = 'ok';
+    await loadPlayers();
+  }catch(e){
+    op_msg.textContent = e.message;
+    op_msg.className = 'bad';
+  }
+}
+
+async function wlAction(action){
+  try{
+    const username = wl_user.value.trim();
+    await api('/api/players/whitelist','POST',{action, username, sync_runtime:true});
+    wl_msg.textContent = `Whitelist ${action} ok`;
+    wl_msg.className = 'ok';
+    await loadPlayers();
+  }catch(e){
+    wl_msg.textContent = e.message;
+    wl_msg.className = 'bad';
   }
 }
 
@@ -205,21 +309,49 @@ async function ws(){
     const t=await api('/api/ws-ticket');
     const scheme=location.protocol==='https:'?'wss':'ws';
     const sock=new WebSocket(`${scheme}://${location.host}/ws?ticket=${encodeURIComponent(t.ticket)}`);
+    wsState.textContent='WebSocket: connected';
+    wsState.className='ok';
+    wsBackoffMs = 2000;
     sock.onmessage=(ev)=>{
       try{
         const m=JSON.parse(ev.data);
-        if(m.type==='snapshot'){status.innerHTML=`<span class='${m.data.running?'ok':'bad'}'>${m.data.running?'RUNNING':'STOPPED'}</span> | ${m.data.server_info.public} | ${m.data.server_info.players}`;}
+        if(m.type==='snapshot'){
+          status.innerHTML=`<span class='${m.data.running?'ok':'bad'}'>${m.data.running?'RUNNING':'STOPPED'}</span> | ${m.data.server_info.public} | ${m.data.server_info.players}`;
+        }
         if(m.type==='log'&&m.chunk){
           const el=document.getElementById('console-window');
           el.textContent += m.chunk;
-          if(el.textContent.length>150000) el.textContent=el.textContent.slice(-120000);
+          if(el.textContent.length>180000) el.textContent=el.textContent.slice(-140000);
           el.scrollTop=el.scrollHeight;
         }
       }catch(_){ }
     };
-    sock.onclose=()=>setTimeout(ws,2000);
-  }catch(_){setTimeout(ws,2000)}
+    sock.onclose=()=>{
+      wsState.textContent=`WebSocket: reconnecting in ${Math.round(wsBackoffMs/1000)}s`;
+      wsState.className='warn';
+      const wait = wsBackoffMs;
+      wsBackoffMs = Math.min(wsBackoffMs * 2, 15000);
+      setTimeout(ws, wait);
+    };
+    sock.onerror=()=>{
+      wsState.textContent='WebSocket: error';
+      wsState.className='bad';
+    };
+  }catch(_){
+    wsState.textContent='WebSocket: reconnecting';
+    wsState.className='warn';
+    setTimeout(ws, Math.min(wsBackoffMs, 15000));
+    wsBackoffMs = Math.min(wsBackoffMs * 2, 15000);
+  }
 }
-loadState(); loadSetup(); loadHealth(); loadServerProps(); ws(); setInterval(loadHealth, 5000);
+
+loadState();
+loadSetup();
+loadHealth();
+loadPlayers();
+loadServerProps();
+ws();
+setInterval(loadHealth, 5000);
+setInterval(loadPlayers, 7000);
 </script></body></html>
     """
