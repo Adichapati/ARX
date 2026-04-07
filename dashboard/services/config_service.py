@@ -96,3 +96,52 @@ class ConfigService:
             clean['setup_completed'] = bool(updates['setup_completed'])
 
         return clean
+
+
+    @staticmethod
+    def write_server_properties(updates: dict) -> dict:
+        updates = updates or {}
+        allowed = {
+            'motd',
+            'max-players',
+            'difficulty',
+            'pvp',
+            'spawn-protection',
+            'white-list',
+            'online-mode',
+        }
+        clean = {}
+        for k, v in updates.items():
+            key = str(k).strip()
+            if key not in allowed:
+                continue
+            val = str(v).strip()
+            if key in {'max-players', 'spawn-protection'}:
+                n = int(val)
+                if key == 'max-players' and not (1 <= n <= 500):
+                    raise ValueError('max-players must be 1..500')
+                if key == 'spawn-protection' and not (0 <= n <= 64):
+                    raise ValueError('spawn-protection must be 0..64')
+                clean[key] = str(n)
+            elif key in {'pvp', 'white-list', 'online-mode'}:
+                if val.lower() not in {'true', 'false'}:
+                    raise ValueError(f'{key} must be true/false')
+                clean[key] = val.lower()
+            elif key == 'difficulty':
+                if val.lower() not in {'peaceful', 'easy', 'normal', 'hard'}:
+                    raise ValueError('difficulty must be peaceful/easy/normal/hard')
+                clean[key] = val.lower()
+            elif key == 'motd':
+                if len(val) > 120:
+                    raise ValueError('motd max length is 120')
+                clean[key] = val
+
+        current = ConfigService.read_server_properties()
+        current.update(clean)
+
+        lines = []
+        for k in sorted(current.keys()):
+            lines.append(f'{k}={current[k]}')
+        SERVER_PROPERTIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SERVER_PROPERTIES_PATH.write_text("\n".join(lines) + "\n", encoding='utf-8')
+        return current

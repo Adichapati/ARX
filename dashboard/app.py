@@ -157,6 +157,31 @@ async def api_console_send(request: Request):
     return {'ok': True, 'message': res.get('message', 'sent')}
 
 
+@app.get('/api/health/runtime')
+async def api_runtime_health(request: Request):
+    require_session(request)
+    return ServerService.runtime_health()
+
+
+@app.get('/api/server-properties')
+async def api_server_props_get(request: Request):
+    require_session(request)
+    return {'ok': True, 'properties': ConfigService.read_server_properties()}
+
+
+@app.post('/api/server-properties')
+async def api_server_props_set(request: Request):
+    require_session(request)
+    data = await request.json()
+    updates = data.get('updates') or {}
+    if not isinstance(updates, dict):
+        return JSONResponse({'error': 'updates must be object'}, status_code=400)
+    try:
+        props = ConfigService.write_server_properties(updates)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    return {'ok': True, 'properties': props}
+
 @app.get('/api/ws-ticket')
 async def api_ws_ticket(request: Request):
     require_session(request)

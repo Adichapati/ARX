@@ -1,5 +1,6 @@
 import subprocess
 import time
+import urllib.request
 
 import psutil
 from mcstatus import JavaServer
@@ -100,3 +101,31 @@ class ServerService:
             }
         except Exception:
             return {'online': False, 'version': 'unknown', 'players_online': 0, 'players_max': 20, 'player_names': []}
+
+    @staticmethod
+    def runtime_health() -> dict:
+        ollama_ok = False
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:11434/api/tags', timeout=1.2) as r:
+                ollama_ok = r.status == 200
+        except Exception:
+            ollama_ok = False
+
+        try:
+            java_running = ServerService.is_running()
+        except Exception:
+            java_running = False
+
+        try:
+            tmux_ok = ServerService.tmux_session_exists()
+        except Exception:
+            tmux_ok = False
+
+        q = ServerService.mc_query()
+        return {
+            'ollama': 'ok' if ollama_ok else 'down',
+            'tmux': 'ok' if tmux_ok else 'down',
+            'java': 'ok' if java_running else 'down',
+            'server_ping': 'ok' if q.get('online') else 'down',
+            'server_version': q.get('version', 'unknown'),
+        }

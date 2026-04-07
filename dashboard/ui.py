@@ -61,6 +61,33 @@ input{width:70%}
   </div>
 </div>
 
+<div class='card'>
+  <h3>Runtime Health</h3>
+  <div id='health' class='grid'>
+    <div>Ollama: <span id='h_ollama'>...</span></div>
+    <div>tmux: <span id='h_tmux'>...</span></div>
+    <div>Java: <span id='h_java'>...</span></div>
+    <div>Server Ping: <span id='h_ping'>...</span></div>
+  </div>
+</div>
+
+<div class='card'>
+  <h3>Server Properties</h3>
+  <div class='grid'>
+    <div><label>MOTD</label><br><input id='sp_motd' style='width:100%'></div>
+    <div><label>Max Players</label><br><input id='sp_max_players' style='width:100%' type='number' min='1' max='500'></div>
+    <div><label>Difficulty</label><br><select id='sp_difficulty' style='width:100%'><option>peaceful</option><option>easy</option><option>normal</option><option>hard</option></select></div>
+    <div><label>Spawn Protection</label><br><input id='sp_spawn_protection' style='width:100%' type='number' min='0' max='64'></div>
+    <div><label>PVP</label><br><select id='sp_pvp' style='width:100%'><option>true</option><option>false</option></select></div>
+    <div><label>Whitelist</label><br><select id='sp_whitelist' style='width:100%'><option>true</option><option>false</option></select></div>
+    <div><label>Online Mode</label><br><select id='sp_online_mode' style='width:100%'><option>true</option><option>false</option></select></div>
+  </div>
+  <div style='margin-top:10px'>
+    <button onclick='saveServerProps()'>Save Properties</button>
+    <span id='spMsg'></span>
+  </div>
+</div>
+
 <div class='card'><h3>Console</h3>
   <div><input id='cmd' placeholder='say hello'><button onclick='sendCmd()'>Send</button></div>
   <div id='cmdmsg'></div>
@@ -124,6 +151,55 @@ async function saveSetup(){
   }
 }
 
+async function loadHealth(){
+  try{
+    const h = await api('/api/health/runtime');
+    h_ollama.textContent = h.ollama;
+    h_tmux.textContent = h.tmux;
+    h_java.textContent = h.java;
+    h_ping.textContent = h.server_ping;
+  }catch(e){
+    h_ollama.textContent = h_tmux.textContent = h_java.textContent = h_ping.textContent = 'error';
+  }
+}
+
+async function loadServerProps(){
+  try{
+    const r = await api('/api/server-properties');
+    const p = r.properties || {};
+    sp_motd.value = p['motd'] || '';
+    sp_max_players.value = Number(p['max-players'] || 20);
+    sp_difficulty.value = p['difficulty'] || 'easy';
+    sp_spawn_protection.value = Number(p['spawn-protection'] || 16);
+    sp_pvp.value = (p['pvp'] || 'true').toLowerCase();
+    sp_whitelist.value = (p['white-list'] || 'false').toLowerCase();
+    sp_online_mode.value = (p['online-mode'] || 'true').toLowerCase();
+  }catch(e){
+    spMsg.textContent = e.message;
+    spMsg.className = 'bad';
+  }
+}
+
+async function saveServerProps(){
+  try{
+    const updates = {
+      motd: sp_motd.value,
+      'max-players': Number(sp_max_players.value),
+      difficulty: sp_difficulty.value,
+      'spawn-protection': Number(sp_spawn_protection.value),
+      pvp: sp_pvp.value,
+      'white-list': sp_whitelist.value,
+      'online-mode': sp_online_mode.value,
+    };
+    await api('/api/server-properties','POST',{updates});
+    spMsg.textContent = 'Saved server.properties';
+    spMsg.className = 'ok';
+  }catch(e){
+    spMsg.textContent = e.message;
+    spMsg.className = 'bad';
+  }
+}
+
 async function ws(){
   try{
     const t=await api('/api/ws-ticket');
@@ -144,6 +220,6 @@ async function ws(){
     sock.onclose=()=>setTimeout(ws,2000);
   }catch(_){setTimeout(ws,2000)}
 }
-loadState(); loadSetup(); ws();
+loadState(); loadSetup(); loadHealth(); loadServerProps(); ws(); setInterval(loadHealth, 5000);
 </script></body></html>
     """
