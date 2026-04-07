@@ -94,12 +94,12 @@ function Show-Box([string]$Title) {
 
 function Show-AsciiDivider([string]$Tag) {
     $art = switch ($Tag) {
-        'port'    { @('   ┌───────────┐','   │  PORT ⚙️  │','   └───────────┘') }
-        'trigger' { @('   (•‿•)  say the magic word','    \  gemma  /','     \______/') }
+        'port'    { @('   +-----------+','   |  PORT CFG |','   +-----------+') }
+        'trigger' { @('   (o_o)  say the magic word','    \  gemma  /','     \______/') }
         'model'   { @('   [ GEMMA CORE ]','   > model select <') }
         'ctx'     { @('   [########      ]','   context tuning') }
-        'temp'    { @('   ~ creativity dial ~','   low ◄──► high') }
-        'admin'   { @('   ╔════════════╗','   ║  ADMIN 🔐  ║','   ╚════════════╝') }
+        'temp'    { @('   ~ creativity dial ~','   low <----> high') }
+        'admin'   { @('   +------------+','   |  ADMIN KEY |','   +------------+') }
         default   { @('   +-----------+','   |  ARX SET  |','   +-----------+') }
     }
     foreach ($line in $art) { Write-Host $line -ForegroundColor DarkGray }
