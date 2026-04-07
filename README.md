@@ -96,6 +96,7 @@ arx shutdown
 - `GEMMA_COMMAND_EXECUTION_BETA=true|false` — Global beta switch in `.env` (true => OP-only execution, false => everyone guide/chat only)
 - Gemma command guide prompt: `prompts/gemma-minecraft-commands.md` (LLM behavior grounding)
 - Command execution policy (beta): enabled for OP players only; non-OP players are guide/chat only (no command execution)
+- Chat parser supports both `<player> message` and `player: message` log formats so non-OP guide mode works across server/proxy variants
 - `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
 - `arx tunnel open` — Open configured Playit URL (or playit.gg if unset)

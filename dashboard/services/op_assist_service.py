@@ -26,6 +26,8 @@ from .player_service import PlayerService
 from .server_service import ServerService
 
 CHAT_RE = re.compile(r"\]:\s*(?:\[[^\]]+\]\s*)?<([A-Za-z0-9_]{3,16})>\s*(.+)$")
+# Some server/proxy stacks emit chat as "name: message" instead of "<name> message".
+CHAT_RE_COLON = re.compile(r"\]:\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]{3,16})\s*:\s*(.+)$")
 SKILL_MD_PATH = Path(__file__).resolve().parents[2] / 'prompts' / 'gemma-minecraft-commands.md'
 
 
@@ -93,6 +95,16 @@ class OpAssistService:
             'type': 'chat',
             'say': f"{user}, I can guide you and answer questions, but {reason}",
         }
+
+    @staticmethod
+    def _parse_chat_line(line: str) -> Optional[tuple[str, str]]:
+        m = CHAT_RE.search(line)
+        if m:
+            return m.group(1), m.group(2).strip()
+        m = CHAT_RE_COLON.search(line)
+        if m:
+            return m.group(1), m.group(2).strip()
+        return None
 
     @staticmethod
     def _extract_after_trigger(msg: str) -> str:
@@ -322,11 +334,10 @@ Examples:
                     now = time.time()
 
                     for line in chunk.splitlines():
-                        m = CHAT_RE.search(line)
-                        if not m:
+                        parsed = OpAssistService._parse_chat_line(line)
+                        if not parsed:
                             continue
-                        user = m.group(1)
-                        msg = m.group(2).strip()
+                        user, msg = parsed
 
                         is_op = user.lower() in ops
                         if not re.search(rf'\b{re.escape(AGENT_TRIGGER)}\b', msg, flags=re.IGNORECASE):
