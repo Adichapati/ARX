@@ -2,6 +2,7 @@ import asyncio
 import re
 
 from ..config import (
+    AGENT_TRIGGER,
     LOG_FILE,
     load_join_watch_state,
     load_known_players,
@@ -56,7 +57,9 @@ class JoinWatcherService:
                             save_known_players(sorted(known))
 
                         # Send in-game greeting
-                        greet = f"Wilson: {'Hello new friend' if is_new else 'Hey welcome back'}, {user}!"
+                        assistant_name = (AGENT_TRIGGER or 'gemma').strip().lower() or 'gemma'
+                        label = assistant_name.capitalize()
+                        greet = f"{label}: {'Hello new friend' if is_new else 'Hey welcome back'}, {user}!"
                         ServerService.send_console_command(f"say {greet}", tier='admin', unsafe_ok=True)
 
                         # Telegram notify via callback
