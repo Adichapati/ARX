@@ -306,22 +306,78 @@ install_pkg_linux() {
   fi
 }
 
+java_major() {
+  if ! need_cmd java; then
+    echo 0
+    return 0
+  fi
+  local line
+  line="$(java -version 2>&1 | head -n1 || true)"
+  if [[ "$line" =~ version\ "1\.([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$line" =~ version\ "([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  echo 0
+}
+
+ensure_java_runtime() {
+  local min_major=21
+  local current
+  current="$(java_major)"
+  if [[ "$current" -ge "$min_major" ]]; then
+    log "Java runtime detected (major=$current)."
+    return 0
+  fi
+
+  log "Java ${min_major}+ required. Attempting automatic install/upgrade..."
+  if [[ "$PLATFORM" == "linux" ]]; then
+    local pkgs=(
+      openjdk-25-jre-headless java-25-openjdk-headless
+      openjdk-24-jre-headless java-24-openjdk-headless
+      openjdk-23-jre-headless java-23-openjdk-headless
+      openjdk-22-jre-headless java-22-openjdk-headless
+      openjdk-21-jre-headless java-21-openjdk-headless
+    )
+    local ok=false
+    local p
+    for p in "${pkgs[@]}"; do
+      if install_pkg_linux "$p"; then
+        ok=true
+        break
+      fi
+    done
+    if [[ "$ok" != true ]]; then
+      err "Could not install Java automatically. Install Java 21+ manually and rerun installer."
+      return 1
+    fi
+  elif [[ "$PLATFORM" == "macos" ]]; then
+    need_cmd brew || { err "Homebrew required for auto-install on macOS. Install Java 21+ manually."; return 1; }
+    brew install openjdk || brew install openjdk@21 || {
+      err "Could not install Java automatically on macOS. Install Java 21+ manually."
+      return 1
+    }
+  else
+    err "Unsupported OS for auto-install. Install Java 21+ manually."
+    return 1
+  fi
+
+  current="$(java_major)"
+  if [[ "$current" -lt "$min_major" ]]; then
+    err "Java install/upgrade completed but runtime is still below Java ${min_major}."
+    err "Install Java 21+ manually and retry."
+    return 1
+  fi
+  log "Java runtime ready (major=$current)."
+}
+
 install_prereqs() {
   if ! need_cmd python3; then err "python3 is required. Install Python 3.11+ and retry."; exit 1; fi
 
-  if ! need_cmd java; then
-    if [[ "$PLATFORM" == "linux" ]]; then
-      install_pkg_linux openjdk-21-jre-headless || install_pkg_linux java-21-openjdk-headless || {
-        err "Could not install Java automatically. Install Java 21+ manually."; exit 1;
-      }
-    elif [[ "$PLATFORM" == "macos" ]]; then
-      need_cmd brew || { err "Homebrew required for auto-install on macOS. Install Java 21+ manually."; exit 1; }
-      brew install openjdk@21
-    else
-      err "Unsupported OS for auto-install. Install Java 21+ manually."
-      exit 1
-    fi
-  fi
+  ensure_java_runtime || exit 1
 
   if ! need_cmd tmux; then
     if [[ "$PLATFORM" == "linux" ]]; then

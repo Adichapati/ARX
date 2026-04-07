@@ -24,6 +24,8 @@ ARX development/testing is isolated from your existing dashboard/server:
 
 Note: native Windows runtime now supports installer/dashboard/server lifecycle. For best installer visuals on Windows, use `install.ps1` (the `install.bat` file is now a wrapper that forwards to PowerShell). Interactive console passthrough (tmux-style send-keys) is still Linux-first and currently returns a clear unavailable message on Windows.
 
+Installer now auto-checks Java runtime and attempts to install/upgrade to Java 21+ (required by recent Minecraft server jars) on Linux/macOS/Windows.
+
 ## Vision
 OpenClaw-style onboarding:
 - User copies one install command

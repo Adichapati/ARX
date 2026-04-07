@@ -230,6 +230,57 @@ function Require-Command([string]$Name, [string]$Hint) {
     }
 }
 
+function Get-JavaMajorVersion {
+    if (-not (Get-Command java -ErrorAction SilentlyContinue)) { return 0 }
+    try {
+        $vline = (& java -version 2>&1 | Select-Object -First 1)
+        if (-not $vline) { return 0 }
+        $s = [string]$vline
+        if ($s -match 'version "1\.(\d+)') { return [int]$Matches[1] }
+        if ($s -match 'version "(\d+)') { return [int]$Matches[1] }
+        return 0
+    } catch {
+        return 0
+    }
+}
+
+function Ensure-Java {
+    $min = 21
+    $major = Get-JavaMajorVersion
+    if ($major -ge $min) {
+        Write-Host "Java runtime detected (major=$major)." -ForegroundColor DarkGray
+        return
+    }
+
+    Write-Host "Java $min+ required. Attempting install/upgrade via winget..." -ForegroundColor Yellow
+    Require-Command winget 'winget not found. Install Java 21+ manually, then rerun installer.'
+
+    $packages = @(
+        'Microsoft.OpenJDK.21',
+        'EclipseAdoptium.Temurin.21.JRE',
+        'EclipseAdoptium.Temurin.21.JDK'
+    )
+
+    $installed = $false
+    foreach ($pkg in $packages) {
+        try {
+            & winget install --id $pkg -e --accept-package-agreements --accept-source-agreements --silent
+            if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+        } catch {
+        }
+    }
+
+    if (-not $installed) {
+        throw 'Could not install Java automatically. Install Java 21+ manually and rerun installer.'
+    }
+
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $major = Get-JavaMajorVersion
+    if ($major -lt $min) {
+        throw "Java install completed but detected runtime is still below $min. Open a new shell or install Java 21+ manually."
+    }
+}
+
 function Ensure-Ollama([string]$ModelName) {
     if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Write-Host 'Ollama not found. Attempting install via winget...' -ForegroundColor Yellow
@@ -373,10 +424,14 @@ try {
 
     Show-Transition 'Running installation pipeline'
 
-    $step = 0; $total = 10
+    $step = 0; $total = 11
 
     Step (++$step) $total 'Prerequisite checks' {
         Require-Command python 'Python 3.11+ is required'
+    }
+
+    Step (++$step) $total 'Java runtime readiness' {
+        Ensure-Java
     }
 
     Step (++$step) $total 'Python environment' {
