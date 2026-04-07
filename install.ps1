@@ -14,15 +14,15 @@ Set-Location -Path $PSScriptRoot
 function Show-Banner {
     Clear-Host
     Write-Host ""
-    Write-Host "    AAAAA   RRRRR   XX   XX" -ForegroundColor Cyan
-    Write-Host "   AA   AA  RR  RR   XX XX " -ForegroundColor Cyan
-    Write-Host "   AAAAAAA  RRRRR     XXX  " -ForegroundColor Green
-    Write-Host "   AA   AA  RR  RR   XX XX " -ForegroundColor Yellow
-    Write-Host "   AA   AA  RR   RR XX   XX" -ForegroundColor Magenta
+    Write-Host "    ___    ____   __   __" -ForegroundColor Cyan
+    Write-Host "   /   |  / __ \  \ \ / /" -ForegroundColor Cyan
+    Write-Host "  / /| | / /_/ /   \ V / " -ForegroundColor Green
+    Write-Host " / ___ |/ _, _/    /   \ " -ForegroundColor Yellow
+    Write-Host "/_/  |_/_/ |_|    /_/\_\" -ForegroundColor Magenta
     Write-Host ""
-    Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
-    Write-Host "| Agentic Runtime for eXecution | OpenClaw-style Setup        |" -ForegroundColor White
-    Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "+------------------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "| Agentic Runtime for eXecution | OpenClaw-style Setup            |" -ForegroundColor White
+    Write-Host "+------------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host ""
 }
 
@@ -30,11 +30,11 @@ function Show-TitleAnimation {
     if ($Yes) { return }
 
     $lines = @(
-        "    AAAAA   RRRRR   XX   XX",
-        "   AA   AA  RR  RR   XX XX ",
-        "   AAAAAAA  RRRRR     XXX  ",
-        "   AA   AA  RR  RR   XX XX ",
-        "   AA   AA  RR   RR XX   XX"
+        "    ___    ____   __   __",
+        "   /   |  / __ \  \ \ / /",
+        "  / /| | / /_/ /   \ V / ",
+        " / ___ |/ _, _/    /   \ ",
+        "/_/  |_/_/ |_|    /_/\_\"
     )
     $colors = @('DarkCyan','Cyan','Green','Yellow','Magenta')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
@@ -106,23 +106,41 @@ function Show-AsciiDivider([string]$Tag) {
 }
 
 function Select-FromList([string]$Title, [string[]]$Options, [int]$DefaultIndex = 0) {
-    Write-Host ""
-    Write-Host "[ARX] $Title" -ForegroundColor Yellow
-    for ($i=0; $i -lt $Options.Count; $i++) {
-        if ($i -eq $DefaultIndex) {
-            Write-Host ("  {0}) {1}  [default]" -f ($i+1), $Options[$i]) -ForegroundColor Cyan
-        } else {
-            Write-Host ("  {0}) {1}" -f ($i+1), $Options[$i]) -ForegroundColor Gray
+    $index = $DefaultIndex
+
+    while ($true) {
+        Clear-Host
+        Show-Banner
+        Show-Box $Title
+        Write-Host "Use ↑/↓ arrows and Enter to choose." -ForegroundColor DarkGray
+        Write-Host ""
+
+        for ($i=0; $i -lt $Options.Count; $i++) {
+            if ($i -eq $index) {
+                Write-Host ("  > {0}" -f $Options[$i]) -ForegroundColor Black -BackgroundColor Cyan
+            } else {
+                Write-Host ("    {0}" -f $Options[$i]) -ForegroundColor Gray
+            }
+        }
+
+        $key = [System.Console]::ReadKey($true)
+        switch ($key.Key) {
+            'UpArrow' {
+                $index--
+                if ($index -lt 0) { $index = $Options.Count - 1 }
+            }
+            'DownArrow' {
+                $index++
+                if ($index -ge $Options.Count) { $index = 0 }
+            }
+            'Enter' {
+                return $Options[$index]
+            }
+            default {
+                # ignore
+            }
         }
     }
-    $pick = Read-Host ("Choose 1-{0} (Enter for default)" -f $Options.Count)
-    if (-not $pick) { return $Options[$DefaultIndex] }
-    if ($pick -match '^[0-9]+$') {
-        $n = [int]$pick
-        if ($n -ge 1 -and $n -le $Options.Count) { return $Options[$n-1] }
-    }
-    Write-Host "Invalid choice, using default." -ForegroundColor DarkYellow
-    return $Options[$DefaultIndex]
 }
 
 function Step([int]$Index, [int]$Total, [string]$Name, [scriptblock]$Action) {
