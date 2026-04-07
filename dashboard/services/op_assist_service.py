@@ -131,9 +131,7 @@ class OpAssistService:
         if len(c) > 220:
             return None, 'command too long'
 
-        # Prevent model hallucinated huge entity-name lists in kill commands.
-        if re.search(r'\bkill\b', c, flags=re.IGNORECASE) and c.count(',') >= 3:
-            return None, 'unsafe kill target list generated'
+        # Allow kill commands (user requested), only basic structural sanitation applies.
 
         # Normalize dragon summon to user position.
         if re.match(r'^summon\s+minecraft:ender_dragon\b', c, flags=re.IGNORECASE):
