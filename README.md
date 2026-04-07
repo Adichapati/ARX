@@ -93,6 +93,7 @@ arx shutdown
 - `arx open` — Open dashboard in browser
 - `arx logs [dashboard|server|ollama|playit]` — Tail logs
 - `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)
+- Gemma command guide prompt: `prompts/gemma-minecraft-commands.md` (LLM behavior grounding)
 - `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
 - `arx tunnel open` — Open configured Playit URL (or playit.gg if unset)

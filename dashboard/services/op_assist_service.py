@@ -5,6 +5,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Optional
 
 from ..config import (
@@ -24,6 +25,7 @@ from .player_service import PlayerService
 from .server_service import ServerService
 
 CHAT_RE = re.compile(r"\]:\s*(?:\[[^\]]+\]\s*)?<([A-Za-z0-9_]{3,16})>\s*(.+)$")
+SKILL_MD_PATH = Path(__file__).resolve().parents[2] / 'prompts' / 'gemma-minecraft-commands.md'
 
 
 class OpAssistService:
@@ -81,47 +83,26 @@ class OpAssistService:
         return tail
 
     @staticmethod
-    def _rule_command_from_message(user: str, msg: str) -> Optional[dict]:
-        """Deterministic command mapper for common asks; bypasses model drift/outages."""
-        q = OpAssistService._extract_after_trigger(msg).strip()
-        if not q:
-            return None
-        s = q.lower()
-
-        # Time control
-        if re.search(r'\b(make|set)\b.*\bday\b', s) or s in ('day', 'make it day'):
-            return {'command': 'time set day', 'say': 'Setting time to day.'}
-        if re.search(r'\b(make|set)\b.*\bnight\b', s) or s in ('night', 'make it night'):
-            return {'command': 'time set night', 'say': 'Setting time to night.'}
-
-        # Spawn ender dragon on user
-        if re.search(r'\bspawn\b.*\bender\s*dragon\b', s):
-            return {
-                'command': f'execute at {user} run summon minecraft:ender_dragon ~ ~ ~',
-                'say': 'Spawning an ender dragon at your position.',
-            }
-
-        # Kill mobs around user (safe selector, avoids model-generated name lists)
-        if re.search(r'\bkill\b.*\bmobs?\b.*\baround\s+me\b', s):
-            return {
-                'command': f'execute at {user} run kill @e[type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,distance=..24]',
-                'say': 'Clearing nearby mobs.',
-            }
-
-        # Give items
-        m_give = re.search(r'\b(?:gimme|give me|give)\b\s+(?:some\s+|a\s+|an\s+)?(.+)$', s)
-        if m_give:
-            item_text = re.sub(r'[^a-z0-9_\s]', '', m_give.group(1)).strip()
-            if 'torch' in item_text:
-                return {'command': f'give {user} minecraft:torch 64', 'say': 'Giving torches.'}
-            if 'diamond sword' in item_text:
-                return {'command': f'give {user} minecraft:diamond_sword 1', 'say': 'Here is a diamond sword!'}
-            if 'sword' in item_text:
-                return {'command': f'give {user} minecraft:iron_sword 1', 'say': 'Here is an iron sword!'}
-            if 'cake' in item_text:
-                return {'command': f'give {user} minecraft:cake 1', 'say': 'Enjoy your cake!'}
-
-        return None
+    def _load_skill_markdown() -> str:
+        try:
+            if SKILL_MD_PATH.exists():
+                txt = SKILL_MD_PATH.read_text(encoding='utf-8', errors='ignore').strip()
+                if txt:
+                    return txt
+        except Exception:
+            pass
+        return """# Gemma Minecraft Command Style Guide
+- Return JSON only.
+- For action requests, always use type=command.
+- Command must be a single valid Minecraft console command (no slash).
+- Never explain limitations; convert request into command.
+- Use exact player name where needed.
+Examples:
+- give item: give <player> minecraft:torch 64
+- set day: time set day
+- summon dragon on player: execute at <player> run summon minecraft:ender_dragon ~ ~ ~
+- kill nearby mobs: execute at <player> run kill @e[type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,distance=..24]
+"""
 
     @staticmethod
     def _sanitize_command(user: str, cmd: str) -> tuple[Optional[str], Optional[str]]:
@@ -197,25 +178,18 @@ class OpAssistService:
                 return {'type': 'command', 'command': explicit, 'say': f"running: {explicit}"}
             return {'type': 'chat', 'say': f"Hey {user}, I'm online. Ask me with: {AGENT_TRIGGER} <command>."}
 
+        skill_md = OpAssistService._load_skill_markdown()
         system_prompt = (
             f"You are {AGENT_TRIGGER}, a Minecraft OP assistant.\n"
             "Return STRICT JSON only with schema:\n"
             "{\"type\":\"chat\",\"say\":\"...\"} OR "
             "{\"type\":\"command\",\"command\":\"...\",\"say\":\"...\"}.\n"
-            "Rules:\n"
-            "- Be concise and friendly.\n"
-            "- If user asks a normal question, use type=chat.\n"
-            "- If user asks for action, ALWAYS use type=command and provide exactly one valid Minecraft console command (no slash prefix).\n"
             f"- The current player name is '{user}'. Use that exact name when targeting the player.\n"
-            "- Commands run from server console context (not player chat), so target the user explicitly where needed.\n"
-            f"- Example: for gamemode use 'gamemode creative {user}'.\n"
-            f"- Example: for teleport to nether use 'execute in minecraft:the_nether run tp {user} 0 80 0'.\n"
-            f"- Example: for giving items use 'give {user} minecraft:diamond_sword 1'.\n"
-            f"- Example: spawn dragon on player -> 'execute at {user} run summon minecraft:ender_dragon ~ ~ ~'.\n"
-            "- Never say you cannot do actions directly; convert request to a command instead.\n"
-            "- Never use placeholders like <playername>, <player>, {player}, playername.\n"
+            "- If user asks for action, use type=command with one valid console command.\n"
             "- Never output host shell commands.\n"
-            "- Never include 'confirm' flow.\n"
+            "- Never include placeholders.\n"
+            "Reference command guide (follow strictly):\n"
+            f"{skill_md}\n"
         )
 
         # conversation memory per user
@@ -333,13 +307,7 @@ class OpAssistService:
                         OpAssistService._last_seen_by_user[user.lower()] = now
 
                         OpAssistService._add_history(user, 'user', msg)
-
-                        # Prefer deterministic mapper for common actions to avoid model drift.
-                        rule = OpAssistService._rule_command_from_message(user, msg)
-                        if rule:
-                            decision = {'type': 'command', 'command': rule['command'], 'say': rule['say']}
-                        else:
-                            decision = OpAssistService._llm_call(user, msg)
+                        decision = OpAssistService._llm_call(user, msg)
 
                         if decision.get('type') == 'chat':
                             text = str(decision.get('say', f"Hey {user}."))
