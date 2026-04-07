@@ -68,6 +68,8 @@ GEMMA_CONTEXT_SIZE = int(os.environ.get('GEMMA_CONTEXT_SIZE', '8192'))
 GEMMA_TEMPERATURE = float(os.environ.get('GEMMA_TEMPERATURE', '0.2'))
 GEMMA_COOLDOWN_SEC = float(os.environ.get('GEMMA_COOLDOWN_SEC', os.environ.get('WILSON_OP_COOLDOWN_SEC', '2.5')))
 GEMMA_MAX_REPLY_CHARS = int(os.environ.get('GEMMA_MAX_REPLY_CHARS', os.environ.get('WILSON_MAX_REPLY_CHARS', '220')))
+# Beta safety gate: command execution allowed only when explicitly enabled.
+GEMMA_COMMAND_EXECUTION_BETA = os.environ.get('GEMMA_COMMAND_EXECUTION_BETA', 'true').lower() == 'true'
 
 PLAYIT_ENABLED = os.environ.get('PLAYIT_ENABLED', 'false').lower() == 'true'
 PLAYIT_URL = os.environ.get('PLAYIT_URL', '').strip()

@@ -93,7 +93,9 @@ arx shutdown
 - `arx open` — Open dashboard in browser
 - `arx logs [dashboard|server|ollama|playit]` — Tail logs
 - `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)
+- `GEMMA_COMMAND_EXECUTION_BETA=true|false` — Global beta switch in `.env` (true => OP-only execution, false => everyone guide/chat only)
 - Gemma command guide prompt: `prompts/gemma-minecraft-commands.md` (LLM behavior grounding)
+- Command execution policy (beta): enabled for OP players only; non-OP players are guide/chat only (no command execution)
 - `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
 - `arx tunnel open` — Open configured Playit URL (or playit.gg if unset)

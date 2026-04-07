@@ -58,6 +58,8 @@ GEMMA_COOLDOWN_SEC=2.5
 AGENT_TRIGGER={trigger}
 GEMMA_CONTEXT_SIZE={context_size}
 GEMMA_TEMPERATURE={temperature}
+# Beta: command execution enabled for OP users only (non-OP users are guide/chat only).
+GEMMA_COMMAND_EXECUTION_BETA=true
 PLAYIT_ENABLED={playit_enabled}
 PLAYIT_URL={playit_url}
 RCON_HOST=127.0.0.1

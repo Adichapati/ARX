@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..config import (
     AGENT_TRIGGER,
+    GEMMA_COMMAND_EXECUTION_BETA,
     GEMMA_CONTEXT_SIZE,
     GEMMA_COOLDOWN_SEC,
     GEMMA_ENABLED,
@@ -68,7 +69,30 @@ class OpAssistService:
                 return True
         return False
 
+    @staticmethod
+    def _can_execute_commands_for_user(is_op: bool) -> bool:
+        return bool(GEMMA_COMMAND_EXECUTION_BETA and is_op)
 
+    @staticmethod
+    def _enforce_permissions_on_decision(user: str, decision: dict, can_execute: bool) -> dict:
+        if not isinstance(decision, dict):
+            return {'type': 'chat', 'say': f"{user}, I couldn't understand that request. Please try again."}
+
+        if decision.get('type') != 'command':
+            return decision
+
+        if can_execute:
+            return decision
+
+        if GEMMA_COMMAND_EXECUTION_BETA:
+            reason = 'command execution is OP-only right now.'
+        else:
+            reason = 'command execution is currently in beta and disabled.'
+
+        return {
+            'type': 'chat',
+            'say': f"{user}, I can guide you and answer questions, but {reason}",
+        }
 
     @staticmethod
     def _extract_after_trigger(msg: str) -> str:
@@ -170,22 +194,28 @@ Examples:
         return None
 
     @staticmethod
-    def _llm_call(user: str, text: str) -> dict:
+    def _llm_call(user: str, text: str, can_execute: bool) -> dict:
         # Fallback if LLM disabled
         if not GEMMA_ENABLED:
-            explicit = OpAssistService._extract_after_trigger(text)
-            if explicit:
-                return {'type': 'command', 'command': explicit, 'say': f"running: {explicit}"}
-            return {'type': 'chat', 'say': f"Hey {user}, I'm online. Ask me with: {AGENT_TRIGGER} <command>."}
+            if can_execute:
+                explicit = OpAssistService._extract_after_trigger(text)
+                if explicit:
+                    return {'type': 'command', 'command': explicit, 'say': f"running: {explicit}"}
+            return {'type': 'chat', 'say': f"Hey {user}, I'm online as your guide. Ask me anything about Minecraft."}
 
         skill_md = OpAssistService._load_skill_markdown()
+        exec_mode_line = (
+            "- Execution mode: command execution is ENABLED for this player; use type=command for actionable requests.\n"
+            if can_execute
+            else "- Execution mode: command execution is DISABLED for this player/session; ALWAYS use type=chat and provide guidance only.\n"
+        )
         system_prompt = (
-            f"You are {AGENT_TRIGGER}, a Minecraft OP assistant.\n"
+            f"You are {AGENT_TRIGGER}, a Minecraft assistant and guide.\n"
             "Return STRICT JSON only with schema:\n"
             "{\"type\":\"chat\",\"say\":\"...\"} OR "
             "{\"type\":\"command\",\"command\":\"...\",\"say\":\"...\"}.\n"
             f"- The current player name is '{user}'. Use that exact name when targeting the player.\n"
-            "- If user asks for action, use type=command with one valid console command.\n"
+            f"{exec_mode_line}"
             "- Never output host shell commands.\n"
             "- Never include placeholders.\n"
             "Reference command guide (follow strictly):\n"
@@ -221,15 +251,17 @@ Examples:
         except urllib.error.HTTPError as e:
             # Avoid vague drift after temporary API failures.
             if int(getattr(e, 'code', 0) or 0) >= 500:
-                explicit = OpAssistService._extract_after_trigger(text)
-                if explicit:
-                    return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
+                if can_execute:
+                    explicit = OpAssistService._extract_after_trigger(text)
+                    if explicit:
+                        return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
                 return {'type': 'chat', 'say': "Model backend is overloaded. Retry in a few seconds or lower context with: arx ai set-context 4096"}
             return {'type': 'chat', 'say': f"I hit API error ({e.code}). Try again."}
         except Exception:
-            explicit = OpAssistService._extract_after_trigger(text)
-            if explicit:
-                return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
+            if can_execute:
+                explicit = OpAssistService._extract_after_trigger(text)
+                if explicit:
+                    return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
             return {'type': 'chat', 'say': "Model backend connection issue. Retry in a moment."}
 
         # parse OpenAI-like response
@@ -249,10 +281,11 @@ Examples:
                 raise ValueError('bad schema')
             return obj
         except Exception:
-            # rescue path: if model output still contains a command-like line, execute it instead of chat-only drift
-            rescue = OpAssistService._extract_command_from_text(user, content)
-            if rescue:
-                return {'type': 'command', 'command': rescue, 'say': f'running: {rescue}'}
+            # rescue path: if model output still contains a command-like line, only execute when permitted
+            if can_execute:
+                rescue = OpAssistService._extract_command_from_text(user, content)
+                if rescue:
+                    return {'type': 'command', 'command': rescue, 'say': f'running: {rescue}'}
             # fallback: treat as chat
             return {'type': 'chat', 'say': content[:GEMMA_MAX_REPLY_CHARS]}
 
@@ -295,19 +328,20 @@ Examples:
                         user = m.group(1)
                         msg = m.group(2).strip()
 
-                        if user.lower() not in ops:
-                            continue
+                        is_op = user.lower() in ops
                         if not re.search(rf'\b{re.escape(AGENT_TRIGGER)}\b', msg, flags=re.IGNORECASE):
                             continue
 
-                        # OP cooldown
+                        # cooldown (all players)
                         last = OpAssistService._last_seen_by_user.get(user.lower(), 0.0)
                         if now - last < GEMMA_COOLDOWN_SEC:
                             continue
                         OpAssistService._last_seen_by_user[user.lower()] = now
 
                         OpAssistService._add_history(user, 'user', msg)
-                        decision = OpAssistService._llm_call(user, msg)
+                        can_execute = OpAssistService._can_execute_commands_for_user(is_op=is_op)
+                        decision = OpAssistService._llm_call(user, msg, can_execute)
+                        decision = OpAssistService._enforce_permissions_on_decision(user, decision, can_execute)
 
                         if decision.get('type') == 'chat':
                             text = str(decision.get('say', f"Hey {user}."))
