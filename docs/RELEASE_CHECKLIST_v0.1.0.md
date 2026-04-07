@@ -17,13 +17,13 @@ Exit criteria:
 
 ## Phase 1 — Installer Reliability
 
-- [ ] Make `install.sh` idempotent (safe to run twice)
-- [ ] Add `--yes` non-interactive mode
-- [ ] Add setup prompts: agent name, admin creds, RAM, port, MOTD, max players, difficulty, OP list, trigger word, local model context size/tuning defaults
+- [x] Make `install.sh` idempotent (safe to run twice)
+- [x] Add `--yes` non-interactive mode
+- [x] Add setup prompts: agent name, admin creds, RAM, port, MOTD, max players, difficulty, OP list, trigger word, local model context size/tuning defaults
 - [ ] Validate all user inputs before writing `.env`
-- [ ] Emit clear post-install summary with next commands
-- [ ] Implement OS-specific Ollama install flows (Linux/macOS/Windows paths) and verify service availability before completing setup
-- [ ] Improve failure messages + remediation steps
+- [x] Emit clear post-install summary with next commands
+- [x] Implement OS-specific Ollama install flows (Linux/macOS/Windows paths) and verify service availability before completing setup
+- [x] Improve failure messages + remediation steps
 
 Exit criteria:
 - Clean machine install works with one command.
