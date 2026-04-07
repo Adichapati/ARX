@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -60,6 +61,21 @@ def _set_env_key(key: str, value: str) -> None:
     if not replaced:
         out.append(f'{key}={value}')
     ENV_PATH.write_text('\n'.join(out).rstrip() + '\n', encoding='utf-8')
+
+
+def _set_runtime_context_in_state(tokens: int) -> None:
+    cfg_path = STATE_DIR / 'arx_config.json'
+    data: dict = {}
+    if cfg_path.exists():
+        try:
+            data = json.loads(cfg_path.read_text(encoding='utf-8', errors='ignore'))
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+    data['gemma_context_size'] = int(tokens)
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(json.dumps(data, indent=2), encoding='utf-8')
 
 
 def bind_host() -> str:
@@ -481,6 +497,7 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx status                  Show status of dashboard/server/ollama/playit')
     print('  arx open                    Open dashboard in default browser')
     print('  arx logs [target]           Show logs (dashboard|server|ollama|playit), default dashboard')
+    print('  arx ai set-context <tokens> Set Ollama context tokens (recommended 2048..8192)')
     print('  arx tunnel setup [--url <addr>] [--enable]  Start Playit tunnel + save URL')
     print('  arx tunnel status           Show Playit tunnel status + configured URL')
     print('  arx tunnel stop             Stop Playit tunnel agent')
@@ -626,6 +643,29 @@ def cmd_version(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ai(args: argparse.Namespace) -> int:
+    action = str(getattr(args, 'action', 'help') or 'help').lower()
+
+    if action == 'set-context':
+        raw = str(getattr(args, 'tokens', '') or '').strip()
+        if not raw.isdigit():
+            print('tokens must be numeric, e.g. arx ai set-context 4096', file=sys.stderr)
+            return 1
+        tokens = int(raw)
+        if tokens < 1024 or tokens > 32768:
+            print('tokens must be between 1024 and 32768 for stable local runtime', file=sys.stderr)
+            return 1
+
+        _set_env_key('GEMMA_CONTEXT_SIZE', str(tokens))
+        _set_runtime_context_in_state(tokens)
+        print(f'GEMMA_CONTEXT_SIZE set to {tokens}')
+        print('restart dashboard to apply: arx restart')
+        return 0
+
+    print('usage: arx ai set-context <tokens>')
+    return 1
+
+
 def cmd_tunnel(args: argparse.Namespace) -> int:
     action = str(getattr(args, 'action', 'status') or 'status').lower()
 
@@ -694,6 +734,10 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument('--url', default='', help='Set/update PLAYIT_URL during tunnel setup')
     tp.add_argument('--enable', action='store_true', help='Set PLAYIT_ENABLED=true during tunnel setup')
 
+    ap = sp.add_parser('ai')
+    ap.add_argument('action', nargs='?', choices=('set-context',), default='set-context')
+    ap.add_argument('tokens', nargs='?')
+
     sp.add_parser('version')
     sp.add_parser('--help')
     sp.add_parser('-h')
@@ -718,6 +762,7 @@ def main() -> int:
         'status': cmd_status,
         'open': cmd_open,
         'logs': cmd_logs,
+        'ai': cmd_ai,
         'tunnel': cmd_tunnel,
         'version': cmd_version,
     }

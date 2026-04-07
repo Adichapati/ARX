@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     --playit-url) PLAYIT_URL="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
-      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2] [--mc-version 1.20.4] [--playit-enabled true|false] [--playit-url <public-tunnel>]"
+      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 4096] [--temperature 0.2] [--mc-version 1.20.4] [--playit-enabled true|false] [--playit-url <public-tunnel>]"
       exit 1
       ;;
   esac
@@ -440,11 +440,14 @@ prompt_if_needed() {
     fi
   fi
 
+  # Context size is no longer an interactive setup prompt.
+  # Default is safe (4096). Advanced users can tune later with: arx ai set-context <tokens>
   if [[ -z "$GEMMA_CONTEXT_SIZE" ]]; then
-    GEMMA_CONTEXT_SIZE="8192"
-    if [[ "$YES_MODE" == false ]]; then
-      GEMMA_CONTEXT_SIZE="$(select_from_list "Choose context size" "ctx" 1 "4096" "8192" "12288" "16384" "32768")"
-    fi
+    GEMMA_CONTEXT_SIZE="4096"
+  fi
+  if ! [[ "$GEMMA_CONTEXT_SIZE" =~ ^[0-9]+$ ]]; then
+    err "Context size must be numeric."
+    exit 1
   fi
 
   if [[ -z "$GEMMA_TEMPERATURE" ]]; then
@@ -511,7 +514,7 @@ validate_inputs() {
   if ! [[ "$ARX_ADMIN_USER" =~ ^[a-zA-Z0-9_.-]{3,32}$ ]]; then err "Admin username must match [a-zA-Z0-9_.-]{3,32}. Got: $ARX_ADMIN_USER"; exit 1; fi
 
   if ! [[ "$GEMMA_CONTEXT_SIZE" =~ ^[0-9]+$ ]]; then err "Context size must be numeric."; exit 1; fi
-  if (( GEMMA_CONTEXT_SIZE < 1024 || GEMMA_CONTEXT_SIZE > 131072 )); then err "Context size must be 1024..131072."; exit 1; fi
+  if (( GEMMA_CONTEXT_SIZE < 1024 || GEMMA_CONTEXT_SIZE > 32768 )); then err "Context size must be 1024..32768."; exit 1; fi
 
   if ! [[ "$GEMMA_TEMPERATURE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then err "Temperature must be numeric 0..2."; exit 1; fi
   awk -v t="$GEMMA_TEMPERATURE" 'BEGIN{exit (t>=0 && t<=2)?0:1}' || { err "Temperature must be 0..2"; exit 1; }
@@ -531,7 +534,6 @@ show_summary() {
   echo "  Dashboard port   : $DASHBOARD_PORT"
   echo "  Trigger          : $AGENT_TRIGGER"
   echo "  Gemma model      : $GEMMA_MODEL"
-  echo "  Context size     : $GEMMA_CONTEXT_SIZE"
   echo "  Temperature      : $GEMMA_TEMPERATURE"
   echo "  Minecraft ver    : $MC_VERSION"
   echo "  Playit enabled   : $PLAYIT_ENABLED"
@@ -605,7 +607,7 @@ obj = {
   'setup_completed': True,
   'agent_trigger': os.environ.get('AGENT_TRIGGER','gemma'),
   'gemma_model': os.environ.get('GEMMA_MODEL','gemma4:e2b'),
-  'gemma_context_size': int(os.environ.get('GEMMA_CONTEXT_SIZE','8192')),
+  'gemma_context_size': int(os.environ.get('GEMMA_CONTEXT_SIZE','4096')),
   'gemma_temperature': float(os.environ.get('GEMMA_TEMPERATURE','0.2')),
   'gemma_max_reply_chars': 220,
   'gemma_cooldown_sec': 2.5,
@@ -647,6 +649,7 @@ EOF
   echo "  Shutdown      : arx shutdown"
   echo "  Tunnel setup  : arx tunnel setup"
   echo "  Tunnel status : arx tunnel status"
+  echo "  AI context    : arx ai set-context 4096"
   if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
     echo "  ARX launcher  : $HOME/.local/bin/arx"
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then

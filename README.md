@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/main/install.
 cd /root/openclaw-dashboard-oneclick
 ./install.sh
 # or non-interactive:
-./install.sh --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 12288 --temperature 0.15
+./install.sh --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 4096 --temperature 0.15
 ./scripts/start_dashboard.sh
 ```
 
@@ -92,6 +92,7 @@ arx shutdown
 - `arx status` — Show live service status (dashboard/server/ollama/playit)
 - `arx open` — Open dashboard in browser
 - `arx logs [dashboard|server|ollama|playit]` — Tail logs
+- `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)
 - `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
 - `arx tunnel stop` — Stop Playit tunnel agent
@@ -100,6 +101,16 @@ arx shutdown
 ## Public Internet Access (Playit)
 
 ARX setup now includes Playit enablement for easier public join flow.
+
+Gemma context tuning note:
+- Installer now defaults to a stable local context size (4096) to avoid OOM/500 errors.
+- To tune later, use:
+
+```bash
+arx ai set-context 4096
+# then
+arx restart
+```
 
 After setup:
 

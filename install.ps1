@@ -4,7 +4,7 @@ param(
     [int]$Port = 18890,
     [string]$Trigger = 'gemma',
     [string]$Model = 'gemma4:e2b',
-    [int]$ContextSize = 8192,
+    [int]$ContextSize = 4096,
     [double]$Temperature = 0.2,
     [string]$McVersion = '1.20.4',
     [bool]$PlayitEnabled = $false,
@@ -273,7 +273,7 @@ function Validate-Inputs {
     if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Port must be between 1024 and 65535.' }
     if ($Trigger -notmatch '^[a-zA-Z0-9_-]{2,24}$') { throw 'Trigger must match [a-zA-Z0-9_-]{2,24}.' }
     if ($Model -notmatch ':') { throw 'Model should look like name:tag (example: gemma4:e2b).' }
-    if ($ContextSize -lt 1024 -or $ContextSize -gt 131072) { throw 'Context size must be between 1024 and 131072.' }
+    if ($ContextSize -lt 1024 -or $ContextSize -gt 32768) { throw 'Context size must be between 1024 and 32768.' }
     if ($Temperature -lt 0 -or $Temperature -gt 2) { throw 'Temperature must be between 0 and 2.' }
     if ($McVersion -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw 'Minecraft version must look like 1.20.4.' }
 }
@@ -335,7 +335,8 @@ try {
 
         $Model = Select-FromList -Title 'Choose Gemma model' -Options @('gemma4:e2b','gemma3:latest','gemma2:9b') -DefaultIndex 0 -ArtTag 'model' -Hint 'Select with Up/Down and press Enter.'
 
-        $ContextSize = [int](Select-FromList -Title 'Choose context size' -Options @('4096','8192','12288','16384','32768') -DefaultIndex 1 -ArtTag 'ctx' -Hint 'Higher context uses more RAM/VRAM.')
+        # Context size is no longer an interactive setup prompt.
+        # Keep default at 4096 for reliability; advanced users can tune later.
 
         $Temperature = [double](Select-FromList -Title 'Choose temperature' -Options @('0.1','0.2','0.3','0.5','0.7') -DefaultIndex 1 -ArtTag 'temp' -Hint 'Lower = stricter, higher = more creative.')
 
@@ -353,6 +354,9 @@ try {
         $adminPass = ''
     }
 
+    # Context is fixed by default for setup stability.
+    if (-not $PSBoundParameters.ContainsKey('ContextSize')) { $ContextSize = 4096 }
+
     Validate-Inputs
 
     Show-Banner
@@ -361,7 +365,6 @@ try {
     Write-Host "  Dashboard port   : $Port" -ForegroundColor Cyan
     Write-Host "  Trigger          : $Trigger" -ForegroundColor Cyan
     Write-Host "  Gemma model      : $Model" -ForegroundColor Cyan
-    Write-Host "  Context size     : $ContextSize" -ForegroundColor Cyan
     Write-Host "  Temperature      : $Temperature" -ForegroundColor Cyan
     Write-Host "  Minecraft ver    : $McVersion" -ForegroundColor Cyan
     Write-Host "  Playit enabled   : $PlayitEnabled" -ForegroundColor Cyan
@@ -425,7 +428,7 @@ try {
             setup_completed = $true
             agent_trigger = $Trigger
             gemma_model = $Model
-            gemma_context_size = $ContextSize
+            gemma_context_size = 4096
             gemma_temperature = $Temperature
             gemma_max_reply_chars = 220
             gemma_cooldown_sec = 2.5
@@ -447,6 +450,7 @@ try {
     Write-Host "  Shutdown      : arx shutdown"
     Write-Host "  Tunnel setup  : arx tunnel setup"
     Write-Host "  Tunnel status : arx tunnel status"
+    Write-Host "  AI context    : arx ai set-context 4096"
     Write-Host "  Launcher path : $env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\arx.bat"
     Write-Host "  Gemma trigger : $Trigger"
     Show-Transition 'All done'

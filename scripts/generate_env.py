@@ -37,7 +37,7 @@ def main() -> int:
     ollama_url = args.ollama_url or os.environ.get('ARX_OLLAMA_URL', 'http://localhost:11434/v1/chat/completions')
     playit_enabled = (args.playit_enabled or os.environ.get('ARX_PLAYIT_ENABLED', 'false')).strip().lower()
     playit_url = args.playit_url or os.environ.get('ARX_PLAYIT_URL', '')
-    context_size = os.environ.get('ARX_CONTEXT_SIZE', '8192')
+    context_size = os.environ.get('ARX_CONTEXT_SIZE', '4096')
     temperature = os.environ.get('ARX_TEMPERATURE', '0.2')
 
     content = f"""BIND_HOST={bind_host}
