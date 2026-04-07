@@ -12,6 +12,8 @@ venv/
 *.log
 *.pid
 data/
+dist/
+state/arx_config.json
 
 # OS/editor
 .DS_Store

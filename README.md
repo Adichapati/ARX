@@ -29,7 +29,14 @@ OpenClaw-style onboarding:
 - Opens dashboard in browser
 - Manages server + local Gemma assistant safely
 
-## One-Command Install (Placeholders for now)
+## One-Command Install
+
+
+Release-pinned installer (recommended for production):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/vX.Y.Z/install.sh | bash
+```
 
 Website-hosted installer (future domain):
 
@@ -73,8 +80,12 @@ Open:
 
 ## What’s Next
 1. Replace installer domain placeholder with real domain.
-2. Add release pipeline + checksums.
-3. Harden installer wizard + idempotency + OS-specific Ollama setup verification.
-4. Add first-run Gemma setup UI for context-size and local inference tuning.
-5. Finalize Gemma assistant safety regression tests.
-6. Publish v0.1.0 release.
+2. Run full terminal end-to-end validation pass.
+3. Iterate fixes from test results.
+4. Tag and publish v0.1.0 release.
+
+
+## Verification
+- Release checksum workflow: `.github/workflows/release.yml`
+- Local artifact/checksum generator: `scripts/generate_release_artifacts.sh`
+- Verification guide: `docs/RELEASE_VERIFICATION.md`

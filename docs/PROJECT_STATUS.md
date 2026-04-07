@@ -9,15 +9,16 @@ User decision: defer full manual testing until all planned phases are implemente
 ## Completed
 - Phase 0: ARX branding + strict isolation guardrails
 - Phase 1: Repo governance/release baseline (LICENSE, SECURITY, CONTRIBUTING, templates, CI)
-- Phase 2: Gemma-only refactor baseline (no Wilson runtime path)
-- Phase 3: Installer hardening (idempotency, --yes mode, OS-aware Ollama checks, input validation)
-- Phase 4 (partial-complete):
-  - First-run Gemma setup/tuning UI
-  - Runtime health card + API (Ollama/tmux/java/server ping)
-  - Editable server.properties controls + API
+- Phase 2: Runtime and dashboard completeness
+- Phase 3: Gemma assistant safety gate
+- Phase 4 (mostly complete):
+  - GitHub release workflow for tagged artifacts
+  - SHA256 checksum generation and publishing path
+  - Release-pinned installer usage in README
+  - Release verification documentation
 
 ## Remaining Priority Work
-1. Release pipeline, checksums, artifact pinning, and domain installer handoff
+1. Replace placeholder installer domain with live domain
 2. End-to-end terminal validation pass (deferred by user until implementation phases complete)
 
 ## Recent Commits

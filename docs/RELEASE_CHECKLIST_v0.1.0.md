@@ -58,10 +58,10 @@ Exit criteria:
 ## Phase 4 — Distribution and Trust
 
 - [ ] Replace placeholder installer domain in README once domain exists
-- [ ] Add GitHub release workflow (tag -> build -> release artifacts)
-- [ ] Publish checksums (`sha256`) for installer/release assets
-- [ ] Pin install script to versioned release artifacts (not mutable main)
-- [ ] Add verification instructions in README
+- [x] Add GitHub release workflow (tag -> build -> release artifacts)
+- [x] Publish checksums (`sha256`) for installer/release assets
+- [x] Pin install script to versioned release artifacts (not mutable main)
+- [x] Add verification instructions in README
 
 Exit criteria:
 - One-liner install points to verifiable versioned artifacts.
