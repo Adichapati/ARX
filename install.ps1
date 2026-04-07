@@ -11,14 +11,24 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 
+function Get-BannerLines {
+    return @(
+        '      ___      ____   __   __',
+        '     /   |    / __ \  \ \ / /',
+        '    / /| |   / /_/ /   \ V / ',
+        '   / ___ |  / _, _/     > <  ',
+        '  /_/  |_| /_/ |_|     /_/\_\ '
+    )
+}
+
 function Show-Banner {
     Clear-Host
     Write-Host ''
-    Write-Host '    ___    ____  __  __' -ForegroundColor Cyan
-    Write-Host '   /   |  / __ \ \ \/ /' -ForegroundColor Cyan
-    Write-Host '  / /| | / /_/ /  \  / ' -ForegroundColor Green
-    Write-Host ' / ___ |/ _, _/   / /  ' -ForegroundColor Yellow
-    Write-Host '/_/  |_/_/ |_|   /_/   ' -ForegroundColor Magenta
+    $lines = Get-BannerLines
+    $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        Write-Host $lines[$i] -ForegroundColor $colors[$i]
+    }
     Write-Host ''
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
     Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup            |' -ForegroundColor White
@@ -29,13 +39,7 @@ function Show-Banner {
 function Show-TitleAnimation {
     if ($Yes) { return }
 
-    $lines = @(
-        '    ___    ____  __  __',
-        '   /   |  / __ \ \ \/ /',
-        '  / /| | / /_/ /  \  / ',
-        ' / ___ |/ _, _/   / /  ',
-        '/_/  |_/_/ |_|   /_/   '
-    )
+    $lines = Get-BannerLines
     $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
 
@@ -105,14 +109,21 @@ function Show-AsciiDivider([string]$Tag) {
     foreach ($line in $art) { Write-Host $line -ForegroundColor DarkGray }
 }
 
-function Select-FromList([string]$Title, [string[]]$Options, [int]$DefaultIndex = 0) {
+function Select-FromList(
+    [string]$Title,
+    [string[]]$Options,
+    [int]$DefaultIndex = 0,
+    [string]$ArtTag = 'default',
+    [string]$Hint = 'Use Up/Down arrows and Enter to choose.'
+) {
     $index = $DefaultIndex
 
     while ($true) {
         Clear-Host
         Show-Banner
         Show-Box $Title
-        Write-Host 'Use Up/Down arrows and Enter to choose.' -ForegroundColor DarkGray
+        Show-AsciiDivider $ArtTag
+        Write-Host $Hint -ForegroundColor DarkGray
         Write-Host ''
 
         for ($i=0; $i -lt $Options.Count; $i++) {
@@ -140,6 +151,13 @@ function Select-FromList([string]$Title, [string[]]$Options, [int]$DefaultIndex 
             }
         }
     }
+}
+
+function Prompt-TextWithArt([string]$Title, [string]$ArtTag, [string]$PromptText) {
+    Show-Banner
+    Show-Box $Title
+    Show-AsciiDivider $ArtTag
+    return Read-Host $PromptText
 }
 
 function Step([int]$Index, [int]$Total, [string]$Name, [scriptblock]$Action) {
@@ -213,27 +231,21 @@ try {
     Show-Box 'Interactive First-Run'
 
     if (-not $Yes) {
-        Show-AsciiDivider 'port'
-        $inPort = Read-Host "Dashboard port [$Port]"
+        $inPort = Prompt-TextWithArt -Title 'Dashboard Port' -ArtTag 'port' -PromptText "Dashboard port [$Port]"
         if ($inPort) { $Port = [int]$inPort }
 
-        Show-AsciiDivider 'trigger'
-        $inTrig = Read-Host "Agent trigger word [$Trigger]"
+        $inTrig = Prompt-TextWithArt -Title 'Trigger Word' -ArtTag 'trigger' -PromptText "Agent trigger word [$Trigger]"
         if ($inTrig) { $Trigger = $inTrig }
 
-        Show-AsciiDivider 'model'
-        $Model = Select-FromList -Title 'Choose Gemma model' -Options @('gemma4:e2b','gemma3:latest','gemma2:9b') -DefaultIndex 0
+        $Model = Select-FromList -Title 'Choose Gemma model' -Options @('gemma4:e2b','gemma3:latest','gemma2:9b') -DefaultIndex 0 -ArtTag 'model' -Hint 'Select with Up/Down and press Enter.'
 
-        Show-AsciiDivider 'ctx'
-        $ContextSize = [int](Select-FromList -Title 'Choose context size' -Options @('4096','8192','12288','16384','32768') -DefaultIndex 1)
+        $ContextSize = [int](Select-FromList -Title 'Choose context size' -Options @('4096','8192','12288','16384','32768') -DefaultIndex 1 -ArtTag 'ctx' -Hint 'Higher context uses more RAM/VRAM.')
 
-        Show-AsciiDivider 'temp'
-        $Temperature = [double](Select-FromList -Title 'Choose temperature' -Options @('0.1','0.2','0.3','0.5','0.7') -DefaultIndex 1)
+        $Temperature = [double](Select-FromList -Title 'Choose temperature' -Options @('0.1','0.2','0.3','0.5','0.7') -DefaultIndex 1 -ArtTag 'temp' -Hint 'Lower = stricter, higher = more creative.')
 
-        Show-AsciiDivider 'admin'
-        $adminUser = Read-Host 'Admin username [admin]'
+        $adminUser = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin username [admin]'
         if (-not $adminUser) { $adminUser = 'admin' }
-        $adminPass = Read-Host 'Admin password - leave blank for auto-generated'
+        $adminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password - leave blank for auto-generated'
     } else {
         $adminUser = 'admin'
         $adminPass = ''
