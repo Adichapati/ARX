@@ -279,7 +279,11 @@ class OpAssistService:
                             OpAssistService._add_history(user, 'assistant', say)
                             OpAssistService._say(say)
                         else:
-                            OpAssistService._say(f"sorry {user}, command failed.")
+                            detail = str(res.get('error', '')).strip()
+                            if detail:
+                                OpAssistService._say(f"sorry {user}, command failed: {detail[:120]}")
+                            else:
+                                OpAssistService._say(f"sorry {user}, command failed.")
 
             except Exception:
                 pass

@@ -95,6 +95,7 @@ arx shutdown
 - `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)
 - `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
 - `arx tunnel status` — Show Playit status + configured public URL
+- `arx tunnel open` — Open configured Playit URL (or playit.gg if unset)
 - `arx tunnel stop` — Stop Playit tunnel agent
 - `arx version` — Print ARX CLI version
 
@@ -118,6 +119,7 @@ After setup:
 arx tunnel setup --enable
 arx tunnel setup --url your-name.playit.gg:12345 --enable
 arx tunnel status
+arx tunnel open
 arx logs playit --lines 120
 ```
 

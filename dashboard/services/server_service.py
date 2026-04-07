@@ -81,11 +81,26 @@ class ServerService:
                 sock.sendall(_pkt(req_id + 1, 2, command))  # command
                 _cmd_id, _cmd_type, _cmd_body = _recv(sock)
 
+            out = (_cmd_body or '').strip()
+            low = out.lower()
+            fail_markers = (
+                'unknown or incomplete command',
+                'incorrect argument for command',
+                'expected ',
+                'no player was found',
+                'no entity was found',
+                'cannot find',
+                'failed to execute',
+                'usage:',
+            )
+            if out and any(m in low for m in fail_markers):
+                return {'ok': False, 'error': f'Minecraft rejected command: {out[:240]}'}
+
             state['rcon_last_ok_at'] = time.time()
             _console_history.append(command)
             state['last_action'] = f'cmd:{command.split()[0]}'
             state['last_status_note'] = f'command sent (rcon): {command}'
-            return {'ok': True, 'message': 'Command sent'}
+            return {'ok': True, 'message': 'Command sent', 'output': out}
         except Exception as e:
             return {'ok': False, 'error': f'RCON command failed: {e}'}
 

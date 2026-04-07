@@ -500,6 +500,7 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx ai set-context <tokens> Set Ollama context tokens (recommended 2048..8192)')
     print('  arx tunnel setup [--url <addr>] [--enable]  Start Playit tunnel + save URL')
     print('  arx tunnel status           Show Playit tunnel status + configured URL')
+    print('  arx tunnel open             Open configured Playit address or playit.gg')
     print('  arx tunnel stop             Stop Playit tunnel agent')
     print('  arx version                 Show ARX CLI version')
     print('')
@@ -538,6 +539,12 @@ def cmd_start(args: argparse.Namespace) -> int:
         print(f'minecraft: {msg}')
         if not ok:
             return 1
+
+        if playit_enabled():
+            ok_p, msg_p = _start_playit()
+            print(f'playit: {msg_p}')
+            if not ok_p:
+                return 1
 
         ok, msg = _start_dashboard()
         print(f'dashboard: {msg}')
@@ -696,12 +703,24 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
             print(f'current configured public address: {playit_url() or str(args.url).strip()}')
         return 0 if ok else 1
 
+    if action == 'open':
+        url = playit_url().strip()
+        if url:
+            if not (url.startswith('http://') or url.startswith('https://')):
+                url = f'http://{url}'
+            print(f'opening {url}')
+            webbrowser.open(url)
+        else:
+            print('opening https://playit.gg')
+            webbrowser.open('https://playit.gg')
+        return 0
+
     if action == 'stop':
         ok, msg = _stop_playit()
         print(f'playit: {msg}')
         return 0 if ok else 1
 
-    print('unknown tunnel action; use setup|status|stop', file=sys.stderr)
+    print('unknown tunnel action; use setup|status|open|stop', file=sys.stderr)
     return 1
 
 
@@ -730,7 +749,7 @@ def build_parser() -> argparse.ArgumentParser:
     lp.add_argument('--lines', type=int, default=120)
 
     tp = sp.add_parser('tunnel')
-    tp.add_argument('action', nargs='?', default='status', choices=('setup', 'status', 'stop'))
+    tp.add_argument('action', nargs='?', default='status', choices=('setup', 'status', 'open', 'stop'))
     tp.add_argument('--url', default='', help='Set/update PLAYIT_URL during tunnel setup')
     tp.add_argument('--enable', action='store_true', help='Set PLAYIT_ENABLED=true during tunnel setup')
 
