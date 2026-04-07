@@ -27,7 +27,43 @@ function Show-Banner {
     Write-Host ""
 }
 
+function Show-TitleAnimation {
+    if ($Yes) { return }
+
+    $lines = @(
+        " █████╗ ██████╗ ██╗  ██╗",
+        "██╔══██╗██╔══██╗╚██╗██╔╝",
+        "███████║██████╔╝ ╚███╔╝ ",
+        "██╔══██║██╔══██╗ ██╔██╗ ",
+        "██║  ██║██║  ██║██╔╝ ██╗",
+        "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝"
+    )
+    $colors = @('DarkCyan','Cyan','Green','Yellow','Magenta','White')
+    $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+
+    for ($col = 1; $col -le $maxLen; $col += 2) {
+        Clear-Host
+        Write-Host ""
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            $n = [Math]::Min($col, $line.Length)
+            $left = $line.Substring(0, $n)
+            $pad = " " * ($maxLen - $n)
+            Write-Host ($left + $pad) -ForegroundColor $colors[$i]
+        }
+        Write-Host ""
+        Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
+        Write-Host "| Agentic Runtime for eXecution | OpenClaw-style Setup        |" -ForegroundColor White
+        Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
+        Start-Sleep -Milliseconds 38
+    }
+}
+
 function Show-Transition([string]$Text) {
+    if ($Yes) {
+        Write-Host "[ARX] $Text"
+        return
+    }
     foreach ($d in @('.', '..', '...')) {
         Write-Host "[ARX] $Text$d" -ForegroundColor Yellow
         Start-Sleep -Milliseconds 110
@@ -35,6 +71,7 @@ function Show-Transition([string]$Text) {
 }
 
 function Show-IntroAnim {
+    if ($Yes) { return }
     $bars = @(
         @{P=10; B='#####.............................................'},
         @{P=24; B='############......................................'},
@@ -59,7 +96,9 @@ function Show-Box([string]$Title) {
 
 function Step([int]$Index, [int]$Total, [string]$Name, [scriptblock]$Action) {
     Write-Host ("[{0}/{1}] {2}" -f $Index, $Total, $Name)
-    Write-Host ("   ... {0}" -f $Name) -ForegroundColor DarkGray
+    if (-not $Yes) {
+        Write-Host ("   ... {0}" -f $Name) -ForegroundColor DarkGray
+    }
     & $Action
     Write-Host ("   [OK] {0}" -f $Name) -ForegroundColor Green
 }
@@ -119,6 +158,7 @@ function Validate-Inputs {
 }
 
 try {
+    Show-TitleAnimation
     Show-Banner
     Show-IntroAnim
     Show-Transition "Opening setup"
