@@ -1,0 +1,89 @@
+# Windows E2E Test Runbook (ARX)
+
+Use this to run a full end-to-end validation on Windows.
+
+## 0) Prerequisites
+- Windows 10/11
+- PowerShell (Admin for winget installs)
+- Python 3.11+
+- Git
+- Java 21+ (installer attempts to handle dependencies)
+
+## 1) Get the code
+
+If repo is published:
+```powershell
+git clone https://github.com/ORG_OR_USER/REPO_NAME.git
+cd REPO_NAME
+```
+
+If you already downloaded source, just `cd` into project root.
+
+## 2) Run installer (Windows path)
+
+Interactive:
+```powershell
+.\install.bat
+```
+
+Non-interactive (recommended for repeatable test):
+```powershell
+.\install.bat --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b
+```
+
+Expected outcomes:
+- `.venv` created
+- Ollama installed/running
+- `gemma4:e2b` pulled
+- `app\minecraft_server\server.jar` present
+- `.env` generated
+
+## 3) Start dashboard
+```powershell
+.\.venv\Scripts\activate
+uvicorn main:app --host 0.0.0.0 --port 18890
+```
+
+Open in browser:
+- http://localhost:18890
+
+## 4) Test checklist (functional)
+1. Login works
+2. Start/Stop/Restart works
+3. Runtime health shows statuses
+4. First-run Gemma setup saves
+5. Server properties save/reload works
+6. OP/whitelist panel add/remove works
+7. Console send command works
+8. WebSocket logs stream and reconnect cleanly after refresh/network blip
+
+## 5) Gemma safety checks
+In Minecraft chat (as OP), trigger using `gemma` and verify:
+- Placeholder command requests are rejected
+- Blocked commands are refused
+- Non-allowlisted commands are refused
+- Targeted commands require own username
+- Success-style response only after log observation
+
+## 6) Troubleshooting
+- Ollama missing model:
+  ```powershell
+  ollama pull gemma4:e2b
+  ```
+- Ollama not running:
+  ```powershell
+  ollama serve
+  ```
+- Recreate env:
+  ```powershell
+  .\install.bat --yes --force-env
+  ```
+
+## 7) GitHub installer path (no domain)
+Use GitHub path until domain is available:
+- Pinned tag (recommended):
+  `https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/vX.Y.Z/install.sh`
+- Main fallback:
+  `https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/main/install.sh`
+
+For Windows, users should run `install.bat` from the repository checkout.

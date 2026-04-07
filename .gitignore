@@ -14,6 +14,9 @@ venv/
 data/
 dist/
 state/arx_config.json
+state/op_assist_state.json
+app/minecraft_server/server.jar
+app/minecraft_server/eula.txt
 
 # OS/editor
 .DS_Store
