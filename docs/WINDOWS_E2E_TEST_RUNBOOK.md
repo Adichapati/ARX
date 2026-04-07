@@ -21,14 +21,19 @@ If you already downloaded source, just `cd` into project root.
 
 ## 2) Run installer (Windows path)
 
-Interactive:
+Preferred (PowerShell, best visuals):
+```powershell
+.\install.ps1
+```
+
+Or via batch wrapper:
 ```powershell
 .\install.bat
 ```
 
 Non-interactive (recommended for repeatable test):
 ```powershell
-.\install.bat --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 12288 --temperature 0.15
+.\install.ps1 -Yes -ForceEnv -Port 18890 -Trigger gemma -Model gemma4:e2b -ContextSize 12288 -Temperature 0.15
 ```
 
 Expected outcomes:

@@ -22,7 +22,7 @@ ARX development/testing is isolated from your existing dashboard/server:
 - Official: Linux + Windows
 - Best effort: macOS
 
-Note: native Windows runtime now supports installer/dashboard/server lifecycle. Interactive console passthrough (tmux-style send-keys) is still Linux-first and currently returns a clear unavailable message on Windows.
+Note: native Windows runtime now supports installer/dashboard/server lifecycle. For best installer visuals on Windows, use `install.ps1` (the `install.bat` file is now a wrapper that forwards to PowerShell). Interactive console passthrough (tmux-style send-keys) is still Linux-first and currently returns a clear unavailable message on Windows.
 
 ## Vision
 OpenClaw-style onboarding:
