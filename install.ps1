@@ -276,6 +276,25 @@ function Validate-Inputs {
     if ($McVersion -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw 'Minecraft version must look like 1.20.4.' }
 }
 
+function Install-ArxLauncher {
+    $targetDir = Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\WindowsApps'
+    if (-not (Test-Path $targetDir)) {
+        New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    }
+
+    $pythonPath = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    $cliPath = Join-Path $PSScriptRoot 'scripts\arx_cli.py'
+    if (-not (Test-Path $pythonPath)) { throw '.venv\Scripts\python.exe not found.' }
+    if (-not (Test-Path $cliPath)) { throw 'scripts\arx_cli.py not found.' }
+
+    $launcher = @"
+@echo off
+setlocal
+""$pythonPath"" ""$cliPath"" %*
+"@
+    Set-Content -Path (Join-Path $targetDir 'arx.bat') -Value $launcher -Encoding ASCII
+}
+
 try {
     Show-TitleAnimation
     Show-Banner
@@ -319,7 +338,7 @@ try {
 
     Show-Transition 'Running installation pipeline'
 
-    $step = 0; $total = 8
+    $step = 0; $total = 9
 
     Step (++$step) $total 'Prerequisite checks' {
         Require-Command python 'Python 3.11+ is required'
@@ -376,9 +395,17 @@ try {
         $cfg | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 state/arx_config.json
     }
 
+    Step (++$step) $total 'ARX launcher install' {
+        Install-ArxLauncher
+    }
+
     Show-Box 'Install Complete'
     Write-Host "  Dashboard URL : http://localhost:$Port/"
-    Write-Host "  Start command : .\.venv\Scripts\activate ; uvicorn main:app --host 0.0.0.0 --port $Port"
+    Write-Host "  Start command : arx start"
+    Write-Host "  Help command  : arx help"
+    Write-Host "  Status        : arx status"
+    Write-Host "  Shutdown      : arx shutdown"
+    Write-Host "  Launcher path : $env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\arx.bat"
     Write-Host "  Gemma trigger : $Trigger"
     Show-Transition 'All done'
     exit 0

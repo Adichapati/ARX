@@ -548,10 +548,39 @@ PY
 }
 
 finalize() {
-  chmod +x app/minecraft_server/start.sh scripts/start_dashboard.sh install.sh scripts/generate_env.py || true
+  chmod +x app/minecraft_server/start.sh scripts/start_dashboard.sh install.sh scripts/generate_env.py scripts/arx_cli.py || true
+
+  if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/arx" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/scripts/arx_cli.py" "\$@"
+EOF
+    chmod +x "$HOME/.local/bin/arx"
+  fi
+
+  if [[ "$PLATFORM" == "linux" && -w "/usr/local/bin" ]]; then
+    cat > /usr/local/bin/arx <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/scripts/arx_cli.py" "\$@"
+EOF
+    chmod +x /usr/local/bin/arx || true
+  fi
+
   box "Install Complete"
   echo "  Dashboard URL : http://localhost:${DASHBOARD_PORT}/"
-  echo "  Start command : ./scripts/start_dashboard.sh"
+  echo "  Start command : arx start"
+  echo "  Help command  : arx help"
+  echo "  Status        : arx status"
+  echo "  Shutdown      : arx shutdown"
+  if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+    echo "  ARX launcher  : $HOME/.local/bin/arx"
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+      echo "  PATH note     : add ~/.local/bin to PATH to run 'arx' directly"
+    fi
+  fi
   echo "  Gemma trigger : ${AGENT_TRIGGER}"
 }
 

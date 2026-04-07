@@ -65,6 +65,29 @@ cd /root/openclaw-dashboard-oneclick
 Open:
 - Private dashboard: `http://<host>:18890/`
 
+## ARX Command (post-setup)
+
+After installer completes, use the global `arx` command:
+
+```bash
+arx help
+arx start
+arx status
+arx open
+arx shutdown
+```
+
+`arx help` commands:
+- `arx help` — Show command menu
+- `arx start` — Start Ollama + Minecraft + dashboard
+- `arx stop` — Stop dashboard + Minecraft (keeps Ollama running)
+- `arx shutdown` — Stop dashboard + Minecraft + Ollama
+- `arx restart` — Restart stack
+- `arx status` — Show live service status
+- `arx open` — Open dashboard in browser
+- `arx logs [dashboard|server|ollama]` — Tail logs
+- `arx version` — Print ARX CLI version
+
 ## Tech Stack
 - Python 3.11+
 - FastAPI + Uvicorn
