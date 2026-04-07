@@ -11,12 +11,18 @@ shift
 goto copy_args
 
 :run_ps
-where powershell >nul 2>nul
-if errorlevel 1 (
-  echo PowerShell is required for install.ps1.
-  echo Please run install.ps1 manually after installing PowerShell.
-  exit /b 1
+where pwsh >nul 2>nul
+if not errorlevel 1 (
+  pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %PS_FLAGS%
+  exit /b %ERRORLEVEL%
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %PS_FLAGS%
-exit /b %ERRORLEVEL%
+where powershell >nul 2>nul
+if not errorlevel 1 (
+  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %PS_FLAGS%
+  exit /b %ERRORLEVEL%
+)
+
+echo PowerShell is required for install.ps1.
+echo Install PowerShell 7 (pwsh) or Windows PowerShell, then rerun.
+exit /b 1

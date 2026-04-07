@@ -11,6 +11,22 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 
+function Test-InteractiveConsole {
+    try {
+        return [Environment]::UserInteractive -and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected
+    } catch {
+        return $false
+    }
+}
+
+$script:CanUseFancyUi = Test-InteractiveConsole
+
+function Safe-Clear {
+    if ($script:CanUseFancyUi) {
+        try { Clear-Host } catch { }
+    }
+}
+
 function Get-BannerLines {
     return @(
         '      ___      ____   __   __',
@@ -22,7 +38,7 @@ function Get-BannerLines {
 }
 
 function Show-Banner {
-    Clear-Host
+    Safe-Clear
     Write-Host ''
     $lines = Get-BannerLines
     $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
@@ -37,7 +53,7 @@ function Show-Banner {
 }
 
 function Show-TitleAnimation {
-    if ($Yes) { return }
+    if ($Yes -or -not $script:CanUseFancyUi) { return }
 
     $lines = Get-BannerLines
     $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
@@ -73,7 +89,7 @@ function Show-Transition([string]$Text) {
 }
 
 function Show-IntroAnim {
-    if ($Yes) { return }
+    if ($Yes -or -not $script:CanUseFancyUi) { return }
     $bars = @(
         @{P=10; B='#####.............................................'},
         @{P=24; B='############......................................'},
@@ -116,10 +132,31 @@ function Select-FromList(
     [string]$ArtTag = 'default',
     [string]$Hint = 'Use Up/Down arrows and Enter to choose.'
 ) {
+    if (-not $script:CanUseFancyUi) {
+        Show-Banner
+        Show-Box $Title
+        Show-AsciiDivider $ArtTag
+        Write-Host $Hint -ForegroundColor DarkGray
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            Write-Host ("  [{0}] {1}" -f ($i + 1), $Options[$i]) -ForegroundColor Gray
+        }
+        while ($true) {
+            $raw = Read-Host ("Choose 1-{0} (default {1})" -f $Options.Count, ($DefaultIndex + 1))
+            if (-not $raw) { return $Options[$DefaultIndex] }
+            if ($raw -match '^\d+$') {
+                $pick = [int]$raw
+                if ($pick -ge 1 -and $pick -le $Options.Count) {
+                    return $Options[$pick - 1]
+                }
+            }
+            Write-Host 'Invalid selection, try again.' -ForegroundColor Yellow
+        }
+    }
+
     $index = $DefaultIndex
 
     while ($true) {
-        Clear-Host
+        Safe-Clear
         Show-Banner
         Show-Box $Title
         Show-AsciiDivider $ArtTag
@@ -134,7 +171,20 @@ function Select-FromList(
             }
         }
 
-        $key = [System.Console]::ReadKey($true)
+        try {
+            $key = [System.Console]::ReadKey($true)
+        } catch {
+            $raw = Read-Host ("Choose 1-{0} (default {1})" -f $Options.Count, ($index + 1))
+            if (-not $raw) { return $Options[$index] }
+            if ($raw -match '^\d+$') {
+                $pick = [int]$raw
+                if ($pick -ge 1 -and $pick -le $Options.Count) {
+                    return $Options[$pick - 1]
+                }
+            }
+            continue
+        }
+
         switch ($key.Key) {
             'UpArrow' {
                 $index--
@@ -154,8 +204,10 @@ function Select-FromList(
 }
 
 function Prompt-TextWithArt([string]$Title, [string]$ArtTag, [string]$PromptText) {
-    Show-Banner
-    Show-Box $Title
+    if ($script:CanUseFancyUi) {
+        Show-Banner
+        Show-Box $Title
+    }
     Show-AsciiDivider $ArtTag
     return Read-Host $PromptText
 }
