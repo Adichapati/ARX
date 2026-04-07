@@ -81,6 +81,79 @@ class OpAssistService:
         return tail
 
     @staticmethod
+    def _rule_command_from_message(user: str, msg: str) -> Optional[dict]:
+        """Deterministic command mapper for common asks; bypasses model drift/outages."""
+        q = OpAssistService._extract_after_trigger(msg).strip()
+        if not q:
+            return None
+        s = q.lower()
+
+        # Time control
+        if re.search(r'\b(make|set)\b.*\bday\b', s) or s in ('day', 'make it day'):
+            return {'command': 'time set day', 'say': 'Setting time to day.'}
+        if re.search(r'\b(make|set)\b.*\bnight\b', s) or s in ('night', 'make it night'):
+            return {'command': 'time set night', 'say': 'Setting time to night.'}
+
+        # Spawn ender dragon on user
+        if re.search(r'\bspawn\b.*\bender\s*dragon\b', s):
+            return {
+                'command': f'execute at {user} run summon minecraft:ender_dragon ~ ~ ~',
+                'say': 'Spawning an ender dragon at your position.',
+            }
+
+        # Kill mobs around user (safe selector, avoids model-generated name lists)
+        if re.search(r'\bkill\b.*\bmobs?\b.*\baround\s+me\b', s):
+            return {
+                'command': f'execute at {user} run kill @e[type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,distance=..24]',
+                'say': 'Clearing nearby mobs.',
+            }
+
+        # Give items
+        m_give = re.search(r'\b(?:gimme|give me|give)\b\s+(?:some\s+|a\s+|an\s+)?(.+)$', s)
+        if m_give:
+            item_text = re.sub(r'[^a-z0-9_\s]', '', m_give.group(1)).strip()
+            if 'torch' in item_text:
+                return {'command': f'give {user} minecraft:torch 64', 'say': 'Giving torches.'}
+            if 'diamond sword' in item_text:
+                return {'command': f'give {user} minecraft:diamond_sword 1', 'say': 'Here is a diamond sword!'}
+            if 'sword' in item_text:
+                return {'command': f'give {user} minecraft:iron_sword 1', 'say': 'Here is an iron sword!'}
+            if 'cake' in item_text:
+                return {'command': f'give {user} minecraft:cake 1', 'say': 'Enjoy your cake!'}
+
+        return None
+
+    @staticmethod
+    def _sanitize_command(user: str, cmd: str) -> tuple[Optional[str], Optional[str]]:
+        c = (cmd or '').strip().replace('\n', ' ').replace('\r', ' ')
+        if not c:
+            return None, 'empty command'
+        if len(c) > 220:
+            return None, 'command too long'
+
+        # Prevent model hallucinated huge entity-name lists in kill commands.
+        if re.search(r'\bkill\b', c, flags=re.IGNORECASE) and c.count(',') >= 3:
+            return None, 'unsafe kill target list generated'
+
+        # Normalize dragon summon to user position.
+        if re.match(r'^summon\s+minecraft:ender_dragon\b', c, flags=re.IGNORECASE):
+            c = f'execute at {user} run {c}'
+
+        # Normalize give command target/item.
+        m = re.match(r'^give\s+(\S+)\s+(\S+)(?:\s+(\d+))?\s*$', c, flags=re.IGNORECASE)
+        if m:
+            tgt = m.group(1)
+            item = m.group(2)
+            qty = m.group(3) or '1'
+            if tgt.lower() in ('me', 'myself', 'self', '@p'):
+                tgt = user
+            if ':' not in item:
+                item = f'minecraft:{item}'
+            c = f'give {tgt} {item} {qty}'
+
+        return c, None
+
+    @staticmethod
     def _add_history(user: str, role: str, text: str):
         buf = OpAssistService._chat_history.setdefault(user.lower(), [])
         buf.append({'role': role, 'content': text})
@@ -176,9 +249,15 @@ class OpAssistService:
         except urllib.error.HTTPError as e:
             # Avoid vague drift after temporary API failures.
             if int(getattr(e, 'code', 0) or 0) >= 500:
+                explicit = OpAssistService._extract_after_trigger(text)
+                if explicit:
+                    return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
                 return {'type': 'chat', 'say': "Model backend is overloaded. Retry in a few seconds or lower context with: arx ai set-context 4096"}
             return {'type': 'chat', 'say': f"I hit API error ({e.code}). Try again."}
         except Exception:
+            explicit = OpAssistService._extract_after_trigger(text)
+            if explicit:
+                return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
             return {'type': 'chat', 'say': "Model backend connection issue. Retry in a moment."}
 
         # parse OpenAI-like response
@@ -256,7 +335,13 @@ class OpAssistService:
                         OpAssistService._last_seen_by_user[user.lower()] = now
 
                         OpAssistService._add_history(user, 'user', msg)
-                        decision = OpAssistService._llm_call(user, msg)
+
+                        # Prefer deterministic mapper for common actions to avoid model drift.
+                        rule = OpAssistService._rule_command_from_message(user, msg)
+                        if rule:
+                            decision = {'type': 'command', 'command': rule['command'], 'say': rule['say']}
+                        else:
+                            decision = OpAssistService._llm_call(user, msg)
 
                         if decision.get('type') == 'chat':
                             text = str(decision.get('say', f"Hey {user}."))
@@ -308,6 +393,14 @@ class OpAssistService:
                         # refuse unresolved placeholders instead of pretending success
                         if re.search(r'<[^>]*>|\{[^}]*\}', cmd):
                             OpAssistService._say(f"{user}, I couldn't build a valid command yet. Please rephrase.")
+                            continue
+
+                        cmd, sanitize_err = OpAssistService._sanitize_command(user, cmd)
+                        if sanitize_err:
+                            OpAssistService._say(f"{user}, I blocked an unsafe command pattern. Please rephrase.")
+                            continue
+                        if not cmd:
+                            OpAssistService._say(f"{user}, I couldn't derive a valid command.")
                             continue
 
                         if OpAssistService._is_blocked(cmd):
