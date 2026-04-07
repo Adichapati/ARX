@@ -18,17 +18,23 @@ def main() -> int:
     parser.add_argument('--output', default='.env')
     parser.add_argument('--bind-host', default='0.0.0.0')
     parser.add_argument('--bind-port', default='18890')
-    parser.add_argument('--admin-user', default='admin')
+    parser.add_argument('--admin-user', default='')
     parser.add_argument('--admin-pass', default='')
     parser.add_argument('--trigger', default='gemma')
     parser.add_argument('--model', default='gemma4:e2b')
     args = parser.parse_args()
 
-    admin_pass = args.admin_pass or secrets.token_urlsafe(10)
+    import os
+    bind_host = args.bind_host or os.environ.get('ARX_BIND_HOST', '0.0.0.0')
+    bind_port = args.bind_port or os.environ.get('ARX_BIND_PORT', '18890')
+    admin_user = args.admin_user or os.environ.get('ARX_ADMIN_USER', 'admin')
+    admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '') or secrets.token_urlsafe(10)
+    trigger = args.trigger or os.environ.get('ARX_TRIGGER', 'gemma')
+    model = args.model or os.environ.get('ARX_MODEL', 'gemma4:e2b')
 
-    content = f"""BIND_HOST={args.bind_host}
-BIND_PORT={args.bind_port}
-AUTH_USERNAME={args.admin_user}
+    content = f"""BIND_HOST={bind_host}
+BIND_PORT={bind_port}
+AUTH_USERNAME={admin_user}
 AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
 SESSION_SECRET={secrets.token_urlsafe(32)}
 PUBLIC_READ_ENABLED=false
@@ -38,10 +44,10 @@ MC_PORT=25565
 MC_TMUX_SESSION=mc_server_arx
 GEMMA_ENABLED=true
 GEMMA_OLLAMA_URL=http://localhost:11434/v1/chat/completions
-GEMMA_OLLAMA_MODEL={args.model}
+GEMMA_OLLAMA_MODEL={model}
 GEMMA_MAX_REPLY_CHARS=220
 GEMMA_COOLDOWN_SEC=2.5
-AGENT_TRIGGER={args.trigger}
+AGENT_TRIGGER={trigger}
 GEMMA_CONTEXT_SIZE=8192
 GEMMA_TEMPERATURE=0.2
 """
@@ -50,7 +56,7 @@ GEMMA_TEMPERATURE=0.2
     out.write_text(content, encoding='utf-8')
 
     print('Generated .env')
-    print(f'Admin username: {args.admin_user}')
+    print(f'Admin username: {admin_user}')
     print(f'Temporary admin password: {admin_pass}')
     print('Change credentials after first login.')
     return 0

@@ -134,7 +134,13 @@ if "%YES_MODE%"=="0" (
 )
 
 if "%ADMIN_PASS%"=="" set ADMIN_PASS=AutoGenPleaseChange
-python scripts\generate_env.py --output .env --bind-host 0.0.0.0 --bind-port %DASHBOARD_PORT% --admin-user %ADMIN_USER% --admin-pass %ADMIN_PASS% --trigger %AGENT_TRIGGER% --model %GEMMA_MODEL% || (echo Failed generating .env & exit /b 1)
+set ARX_BIND_HOST=0.0.0.0
+set ARX_BIND_PORT=%DASHBOARD_PORT%
+set ARX_ADMIN_USER=%ADMIN_USER%
+set ARX_ADMIN_PASS=%ADMIN_PASS%
+set ARX_TRIGGER=%AGENT_TRIGGER%
+set ARX_MODEL=%GEMMA_MODEL%
+python scripts\generate_env.py --output .env || (echo Failed generating .env & exit /b 1)
 
 :finish
 echo [ARX 8/8] Install complete.
