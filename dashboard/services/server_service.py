@@ -83,17 +83,32 @@ class ServerService:
 
         if ServerService._is_windows():
             ServerService._ensure_windows_start_script()
-            script = ServerService._win_script_path()
-            cmd = f'cmd /c start "ARX-Minecraft" /D "{MINECRAFT_DIR}" "{script}"'
             if os.name != 'nt':
                 state['last_status_note'] = 'start failed (windows branch on non-windows host)'
                 return 'failed: windows start is only available on Windows host'
-            cp = run(cmd)
-            if cp.returncode == 0:
-                state['last_status_note'] = 'start command sent (windows detached process)'
+
+            script = str(MINECRAFT_DIR / 'start.bat')
+            flags = 0
+            flags |= getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+            flags |= getattr(subprocess, 'DETACHED_PROCESS', 0)
+            flags |= getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+            try:
+                devnull = open(os.devnull, 'w')
+                subprocess.Popen(
+                    ['cmd', '/c', script],
+                    cwd=str(MINECRAFT_DIR),
+                    stdin=devnull,
+                    stdout=devnull,
+                    stderr=devnull,
+                    creationflags=flags,
+                    close_fds=True,
+                )
+                state['last_status_note'] = 'start command sent (windows detached, no popup)'
                 return 'started'
-            state['last_status_note'] = 'start failed (windows)'
-            return f'failed: {(cp.stderr or cp.stdout or "start failed").strip()}'
+            except Exception as e:
+                state['last_status_note'] = 'start failed (windows)'
+                return f'failed: {e}'
 
         cmd = f"tmux new-session -d -s {TMUX_SESSION} 'cd {shlex.quote(str(MINECRAFT_DIR))} && ./start.sh'"
         cp = run(cmd)

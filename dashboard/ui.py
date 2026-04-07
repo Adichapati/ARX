@@ -213,6 +213,18 @@ async function stagePlugin(){try{const r=await api('/api/plugins/stage','POST',{
 async function rmPlugin(f){try{const r=await api('/api/plugins/remove','POST',{file:f}); st('plstat',r.message,true); loadPlugins();}catch(e){st('plstat',e.message,false)}}
 
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active'); document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.getElementById('panel-'+t.dataset.tab).classList.add('active');});
-wsconn(); lp(); lpv(); rb(); la(); loadPlugins(); setInterval(la,30000);
+async function refreshAll(){
+  try{ const s = await api('/api/state'); render(s); }catch(_){ }
+  try{ await lp(); }catch(_){ }
+  try{ await lpv(); }catch(_){ }
+  try{ await rb(); }catch(_){ }
+  try{ await la(); }catch(_){ }
+  try{ await loadPlugins(); }catch(_){ }
+}
+
+wsconn();
+refreshAll();
+setInterval(refreshAll,5000);
+setInterval(la,30000);
 </script></body></html>
 """

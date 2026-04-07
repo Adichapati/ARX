@@ -175,14 +175,15 @@ async def ws_feed(ws: WebSocket):
     try:
         from .config import LOG_FILE
         if LOG_FILE.exists():
-            log_offset = max(0, LOG_FILE.stat().st_size - 4096)
+            # Stream from the start of current log so console panel is populated immediately.
+            log_offset = 0
         while True:
             await ws.send_json({'type': 'snapshot', 'data': get_snapshot()})
             diff = LogService.diff_from(log_offset)
             log_offset = diff['next_offset']
             if diff['chunk']:
                 await ws.send_json({'type': 'log', 'chunk': diff['chunk']})
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
         return
 
