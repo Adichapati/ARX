@@ -46,14 +46,36 @@ def public_html() -> str:
 .tag{display:inline-block;padding:5px 11px;border-radius:999px;border:3px solid var(--ink);font-weight:800;font-size:12px;box-shadow:3px 3px 0 var(--ink);background:var(--purple)}
 .big{font-size:30px;font-weight:900;margin-top:8px}.k{font-weight:700;opacity:.9}.mono{font-family:ui-monospace,Consolas,monospace}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.small{font-size:12px;opacity:.85}
 </style></head><body><div class='wrap'>
-<div class='card'><span class='tag'>PUBLIC • READ ONLY</span><h2 style='margin:8px 0 0 0'>Minecraft Server Status</h2></div>
+<div class='card'><span class='tag'>PUBLIC • READ ONLY</span><h2 style='margin:8px 0 0 0'>Minecraft Server Status</h2><div class='small' id='fetchStatus' style='margin-top:6px;color:#444'>Updating…</div></div>
 <div class='card'><div class='big' id='running'>...</div><div class='k' id='serverinfo'>...</div></div>
 <div class='card'><div class='k'>ONLINE PLAYERS</div><div class='mono' id='onlinePlayersPublic' style='margin-top:8px'>Loading...</div></div>
 <div class='grid'><div class='card'><div class='k'>CPU</div><div class='big' id='cpu'>...</div></div><div class='card'><div class='k'>RAM</div><div class='big' id='ram'>...</div><div class='k mono' id='ramd'></div></div></div>
 </div>
 <script>
 const tok = location.pathname.split('/').pop();
+const PUBLIC_REFRESH_MS = 10000;
+const PUBLIC_FETCH_TIMEOUT_MS = 8000;
+let publicPollTimer = null;
+let publicRefreshInFlight = false;
+let publicLastUpdatedAt = null;
+
+function fmtPublicTime(ts){
+ try{return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});}catch(_){return '--:--:--';}
+}
+function setPublicFetchStatus(state, detail=''){
+ const el = document.getElementById('fetchStatus');
+ if(!el) return;
+ const last = publicLastUpdatedAt ? ` • updated ${fmtPublicTime(publicLastUpdatedAt)}` : '';
+ let label = 'Idle';
+ let color = '#444';
+ if(state==='updating'){label='Updating…'; color='#444';}
+ else if(state==='ok'){label='Live'; color='#0b7f35';}
+ else if(state==='error'){label='Update failed'; color='#b00020';}
+ el.textContent = detail ? `${label}${last} • ${detail}` : `${label}${last}`;
+ el.style.color = color;
+}
 function renderPublicPlayers(serverInfo){
  const names = (serverInfo && Array.isArray(serverInfo.player_names)) ? serverInfo.player_names : [];
  const count = Number(serverInfo?.players_online || 0);
@@ -68,19 +90,57 @@ function renderPublicPlayers(serverInfo){
  }
  el.textContent = 'No players online right now.';
 }
-async function refresh(){
- const r=await fetch(`/api/public/state/${encodeURIComponent(tok)}`);
- const d=await r.json();
- if(!r.ok){ throw new Error(d.error || 'forbidden'); }
- document.getElementById('running').textContent = d.running ? 'RUNNING' : 'STOPPED';
- document.getElementById('running').style.color = d.running ? '#0b7f35' : '#b00020';
- document.getElementById('serverinfo').textContent = `${d.server_info.public} | Version: ${d.server_info.version} | Players: ${d.server_info.players}`;
- renderPublicPlayers(d.server_info || {});
- document.getElementById('cpu').textContent = `${d.metrics.cpu_percent}%`;
- document.getElementById('ram').textContent = `${d.metrics.memory_percent}%`;
- document.getElementById('ramd').textContent = `${d.metrics.memory_used_gb} GB / ${d.metrics.memory_total_gb} GB`;
+async function fetchPublicStateWithTimeout(){
+ const controller = new AbortController();
+ const timeoutId = setTimeout(()=>controller.abort(), PUBLIC_FETCH_TIMEOUT_MS);
+ try{
+  const r=await fetch(`/api/public/state/${encodeURIComponent(tok)}`, {signal: controller.signal});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){ throw new Error(d.error || 'Unable to load status right now.'); }
+  return d;
+ }catch(e){
+  if(e && e.name==='AbortError') throw new Error('Request timed out. Retrying…');
+  throw e;
+ }finally{ clearTimeout(timeoutId); }
 }
-refresh(); setInterval(refresh,10000);
+async function refreshPublic(force=false){
+ if(!force && document.hidden) return;
+ if(publicRefreshInFlight) return;
+ publicRefreshInFlight = true;
+ setPublicFetchStatus('updating');
+ try{
+  const d = await fetchPublicStateWithTimeout();
+  document.getElementById('running').textContent = d.running ? 'RUNNING' : 'STOPPED';
+  document.getElementById('running').style.color = d.running ? '#0b7f35' : '#b00020';
+  document.getElementById('serverinfo').textContent = `${d.server_info.public} | Version: ${d.server_info.version} | Players: ${d.server_info.players}`;
+  renderPublicPlayers(d.server_info || {});
+  document.getElementById('cpu').textContent = `${d.metrics.cpu_percent}%`;
+  document.getElementById('ram').textContent = `${d.metrics.memory_percent}%`;
+  document.getElementById('ramd').textContent = `${d.metrics.memory_used_gb} GB / ${d.metrics.memory_total_gb} GB`;
+  publicLastUpdatedAt = Date.now();
+  setPublicFetchStatus('ok');
+ }catch(e){
+  const msg = (e && e.message) ? e.message : 'Unable to refresh status.';
+  setPublicFetchStatus('error', msg);
+  if(document.getElementById('running').textContent === '...'){
+   document.getElementById('running').textContent = 'STATUS UNAVAILABLE';
+   document.getElementById('running').style.color = '#b00020';
+   document.getElementById('serverinfo').textContent = 'Could not load public status yet. Retrying automatically.';
+   document.getElementById('onlinePlayersPublic').textContent = 'Player list unavailable while reconnecting.';
+  }
+ }finally{
+  publicRefreshInFlight = false;
+ }
+}
+function startPublicPolling(){
+ if(publicPollTimer) return;
+ publicPollTimer = setInterval(()=>{ void refreshPublic(false); }, PUBLIC_REFRESH_MS);
+}
+document.addEventListener('visibilitychange', ()=>{
+ if(!document.hidden){ void refreshPublic(true); }
+});
+void refreshPublic(true);
+startPublicPolling();
 </script></body></html>
 """
 
@@ -176,6 +236,9 @@ const WS_BACKOFF_MIN_MS = 1000;
 const WS_BACKOFF_MAX_MS = 30000;
 const WS_BACKOFF_JITTER_MS = 250;
 let coreRefreshInFlight = false;
+const DASH_POLL_MS = 15000;
+let corePollTimer = null;
+let tabPollTimer = null;
 
 function wsConnected(){ return !!ws && ws.readyState === WebSocket.OPEN; }
 function escHtml(v){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -313,6 +376,7 @@ const tabCadenceMs = {
 const tabLastRefresh = {};
 
 async function refreshCore(force=false){
+  if(!force && document.hidden) return;
   if(coreRefreshInFlight) return;
   if(!force && wsConnected()) return;
   coreRefreshInFlight = true;
@@ -320,12 +384,22 @@ async function refreshCore(force=false){
 }
 
 async function refreshTab(tab, force=false){
+  if(!force && document.hidden) return;
   const fn = tabRefreshers[tab];
   if(!fn) return;
   const now = Date.now();
   const cadence = tabCadenceMs[tab] || 120000;
   if(!force && tabLastRefresh[tab] && (now - tabLastRefresh[tab]) < cadence) return;
   try{ await fn(); tabLastRefresh[tab] = Date.now(); }catch(_){ }
+}
+
+function startDashPolling(){
+  if(!corePollTimer){
+    corePollTimer = setInterval(()=>{ void refreshCore(false); }, DASH_POLL_MS);
+  }
+  if(!tabPollTimer){
+    tabPollTimer = setInterval(()=>{ void refreshTab(activeTab(), false); }, DASH_POLL_MS);
+  }
 }
 
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
@@ -345,10 +419,17 @@ window.addEventListener('offline', ()=>{
   setWsStatus('disconnected','Disconnected (offline)');
 });
 
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  if(!wsConnected() && (!ws || ws.readyState !== WebSocket.CONNECTING)){ wsconn(); }
+  void refreshCore(true);
+  void refreshTab(activeTab(), true);
+});
+
 wsconn();
-refreshCore(true);
-refreshTab(activeTab(), true);
-setInterval(()=>refreshCore(false),15000);
-setInterval(()=>refreshTab(activeTab(), false),15000);
+void refreshCore(true);
+void refreshTab(activeTab(), true);
+startDashPolling();
 </script></body></html>
 """

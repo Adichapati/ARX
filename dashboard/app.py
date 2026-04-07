@@ -347,7 +347,10 @@ async def api_world_restore(request: Request):
     data = await request.json()
     res = WorldService.restore_backup(str(data.get('name', '')).strip())
     if not res.get('ok'):
-        return JSONResponse({'error': res.get('error', 'restore failed')}, status_code=400)
+        payload = {'error': res.get('error', 'restore failed')}
+        if 'details' in res:
+            payload['details'] = res['details']
+        return JSONResponse(payload, status_code=400)
     return res
 
 
@@ -363,13 +366,12 @@ async def api_world_download_url(request: Request):
 @app.get('/api/world/download/{name}')
 async def api_world_download(name: str, request: Request):
     require_session(request)
-    from .config import BACKUPS_DIR
-    if '/' in name or '..' in name:
+    backup_path = WorldService._resolve_backup_path(name)
+    if backup_path is None:
         raise HTTPException(status_code=400, detail='Invalid file')
-    p = BACKUPS_DIR / name
-    if not p.exists():
+    if not backup_path.exists() or not backup_path.is_file():
         raise HTTPException(status_code=404, detail='Not found')
-    return FileResponse(path=str(p), filename=name, media_type='application/zip')
+    return FileResponse(path=str(backup_path), filename=backup_path.name, media_type='application/zip')
 
 
 @app.post('/api/world/upload-b64')
@@ -378,17 +380,37 @@ async def api_world_upload_b64(request: Request):
     data = await request.json()
     res = WorldService.upload_world_zip_b64(str(data.get('archive_b64', '')), str(data.get('filename', 'uploaded-world.zip')))
     if not res.get('ok'):
-        return JSONResponse({'error': res.get('error', 'upload failed')}, status_code=400)
+        payload = {'error': res.get('error', 'upload failed')}
+        if 'details' in res:
+            payload['details'] = res['details']
+        return JSONResponse(payload, status_code=400)
     return res
 
 
 @app.post('/api/world/upload')
 async def api_world_upload(request: Request, file: UploadFile = File(...)):
     require_session(request)
-    raw = await file.read()
-    res = WorldService.upload_world_zip_bytes(raw, file.filename or 'uploaded-world.zip')
+    max_upload_bytes = WorldService.MAX_UPLOAD_BYTES
+    chunk_size = 1024 * 1024
+    raw = bytearray()
+
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        if len(raw) + len(chunk) > max_upload_bytes:
+            return JSONResponse(
+                {'error': f'Upload too large (max {max_upload_bytes // (1024 * 1024)} MB)'},
+                status_code=400,
+            )
+        raw.extend(chunk)
+
+    res = WorldService.upload_world_zip_bytes(bytes(raw), file.filename or 'uploaded-world.zip')
     if not res.get('ok'):
-        return JSONResponse({'error': res.get('error', 'upload failed')}, status_code=400)
+        payload = {'error': res.get('error', 'upload failed')}
+        if 'details' in res:
+            payload['details'] = res['details']
+        return JSONResponse(payload, status_code=400)
     return res
 
 

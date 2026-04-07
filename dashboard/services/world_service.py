@@ -1,6 +1,8 @@
 import base64
 import os
+import re
 import shutil
+import stat
 import zipfile
 from pathlib import Path
 
@@ -31,6 +33,155 @@ class SeedService:
 
 
 class WorldService:
+    MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+    MAX_ARCHIVE_MEMBERS = 100_000
+    MAX_ARCHIVE_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
+
+    @staticmethod
+    def _unsafe_archive_error(member: str, reason: str) -> dict:
+        return {
+            'ok': False,
+            'error': 'Unsafe zip archive',
+            'details': {'member': member, 'reason': reason},
+        }
+
+    @staticmethod
+    def _extract_archive_error(member: str, reason: str) -> dict:
+        return {
+            'ok': False,
+            'error': 'Failed to extract zip archive',
+            'details': {'member': member, 'reason': reason},
+        }
+
+    @staticmethod
+    def _corrupt_archive_error(member: str) -> dict:
+        return {
+            'ok': False,
+            'error': f'Corrupt zip member: {member}',
+            'details': {'member': member, 'reason': 'Member failed integrity check'},
+        }
+
+    @staticmethod
+    def _invalid_archive_error(reason: str = 'Archive is not a readable zip file') -> dict:
+        return {
+            'ok': False,
+            'error': 'Invalid zip archive',
+            'details': {'reason': reason},
+        }
+
+    @staticmethod
+    def _zip_member_target(member_name: str, destination: Path) -> tuple[Path | None, dict | None]:
+        if not member_name:
+            return None, WorldService._unsafe_archive_error(member_name, 'Empty member name')
+        if '\x00' in member_name:
+            return None, WorldService._unsafe_archive_error(member_name, 'NUL byte in member name')
+
+        normalized = member_name.replace('\\', '/')
+        if normalized.startswith('/'):
+            return None, WorldService._unsafe_archive_error(member_name, 'Absolute paths are not allowed')
+        if re.match(r'^[a-zA-Z]:', normalized):
+            return None, WorldService._unsafe_archive_error(member_name, 'Drive-prefixed paths are not allowed')
+
+        parts = [p for p in normalized.split('/') if p and p != '.']
+        if any(p == '..' for p in parts):
+            return None, WorldService._unsafe_archive_error(member_name, 'Path traversal is not allowed')
+
+        if not parts:
+            # Directory marker like "/" or "./" has no extractable target.
+            return None, None
+
+        dest_root = destination.resolve()
+        target = (dest_root / Path(*parts)).resolve()
+        try:
+            target.relative_to(dest_root)
+        except ValueError:
+            return None, WorldService._unsafe_archive_error(member_name, 'Entry resolves outside extraction directory')
+        return target, None
+
+    @staticmethod
+    def _validate_zip_members(zf: zipfile.ZipFile, destination: Path) -> dict | None:
+        infos = zf.infolist()
+        if len(infos) > WorldService.MAX_ARCHIVE_MEMBERS:
+            return WorldService._unsafe_archive_error(
+                '<archive>',
+                f'Archive has too many entries ({len(infos)} > {WorldService.MAX_ARCHIVE_MEMBERS})',
+            )
+
+        total_uncompressed = 0
+        max_uncompressed = WorldService.MAX_ARCHIVE_UNCOMPRESSED_BYTES
+
+        for info in infos:
+            file_size = max(0, int(getattr(info, 'file_size', 0) or 0))
+            total_uncompressed += file_size
+            if total_uncompressed > max_uncompressed:
+                return WorldService._unsafe_archive_error(
+                    info.filename,
+                    (
+                        'Archive uncompressed size exceeds limit '
+                        f'({total_uncompressed} > {max_uncompressed} bytes)'
+                    ),
+                )
+
+            mode = (info.external_attr >> 16) & 0o170000
+            if stat.S_ISLNK(mode):
+                return WorldService._unsafe_archive_error(info.filename, 'Symlink entries are not allowed')
+
+            _target, err = WorldService._zip_member_target(info.filename, destination)
+            if err:
+                return err
+        return None
+
+    @staticmethod
+    def _safe_extract_zip(zf: zipfile.ZipFile, destination: Path) -> dict | None:
+        validation_error = WorldService._validate_zip_members(zf, destination)
+        if validation_error:
+            return validation_error
+
+        for info in zf.infolist():
+            target, err = WorldService._zip_member_target(info.filename, destination)
+            if err:
+                return err
+            if target is None:
+                continue
+
+            if info.is_dir() or info.filename.endswith('/'):
+                try:
+                    target.mkdir(parents=True, exist_ok=True)
+                except Exception as exc:
+                    return WorldService._extract_archive_error(info.filename, str(exc) or 'Directory create failure')
+                continue
+
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info, 'r') as src, open(target, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+            except Exception as exc:
+                return WorldService._extract_archive_error(info.filename, str(exc) or 'I/O extraction failure')
+        return None
+
+    @staticmethod
+    def _resolve_backup_path(backup_name: str) -> Path | None:
+        if not isinstance(backup_name, str):
+            return None
+
+        normalized = backup_name.strip().replace('\\', '/')
+        if not normalized or '\x00' in normalized:
+            return None
+        if normalized.startswith('/') or normalized.startswith('//'):
+            return None
+        if re.match(r'^[a-zA-Z]:', normalized):
+            return None
+        if '/' in normalized or '..' in normalized:
+            return None
+
+        backup_root = BACKUPS_DIR.resolve()
+        backup_path = (backup_root / normalized).resolve()
+        try:
+            backup_path.relative_to(backup_root)
+        except ValueError:
+            return None
+        return backup_path
+
     @staticmethod
     def level_name() -> str:
         return PropertiesService.read_all().get('level-name', 'world') or 'world'
@@ -100,23 +251,42 @@ class WorldService:
 
     @staticmethod
     def restore_backup(backup_name: str) -> dict:
-        if '/' in backup_name or '..' in backup_name:
+        backup_path = WorldService._resolve_backup_path(backup_name)
+        if backup_path is None:
             return {'ok': False, 'error': 'Invalid backup name'}
-        backup_path = BACKUPS_DIR / backup_name
-        if not backup_path.exists():
+        if not backup_path.exists() or not backup_path.is_file():
             return {'ok': False, 'error': 'Backup not found'}
+
+        try:
+            with zipfile.ZipFile(backup_path, 'r') as zf:
+                unsafe = WorldService._validate_zip_members(zf, MINECRAFT_DIR)
+                if unsafe:
+                    return unsafe
+                test = zf.testzip()
+                if test:
+                    return WorldService._corrupt_archive_error(test)
+        except zipfile.BadZipFile:
+            return WorldService._invalid_archive_error('Bad zip file')
+        except Exception as exc:
+            return WorldService._invalid_archive_error(str(exc) or 'Archive open/read failure')
 
         was_running = ServerService.is_running()
         if was_running:
             ServerService.stop()
 
-        WorldService.delete_world_files()
-        with zipfile.ZipFile(backup_path, 'r') as zf:
-            zf.extractall(MINECRAFT_DIR)
-
-        if was_running:
-            ServerService.start()
-
+        try:
+            WorldService.delete_world_files()
+            with zipfile.ZipFile(backup_path, 'r') as zf:
+                unsafe = WorldService._safe_extract_zip(zf, MINECRAFT_DIR)
+                if unsafe:
+                    return unsafe
+        except zipfile.BadZipFile:
+            return WorldService._invalid_archive_error('Bad zip file')
+        except Exception as exc:
+            return WorldService._extract_archive_error('<archive>', str(exc) or 'Archive extraction failure')
+        finally:
+            if was_running:
+                ServerService.start()
         return {'ok': True, 'message': f'Restored backup {backup_name}'}
 
     @staticmethod
@@ -129,7 +299,7 @@ class WorldService:
 
     @staticmethod
     def upload_world_zip_bytes(raw: bytes, filename: str = 'uploaded-world.zip') -> dict:
-        if len(raw) > 200 * 1024 * 1024:
+        if len(raw) > WorldService.MAX_UPLOAD_BYTES:
             return {'ok': False, 'error': 'Upload too large'}
 
         WorldService.ensure_backup_dir()
@@ -137,23 +307,48 @@ class WorldService:
         tmp_zip = BACKUPS_DIR / f'upload-{utc_stamp()}-{safe_name}'
         tmp_zip.write_bytes(raw)
 
+        def _cleanup_tmp_zip() -> None:
+            try:
+                tmp_zip.unlink(missing_ok=True)
+            except Exception:
+                pass
+
         try:
             with zipfile.ZipFile(tmp_zip, 'r') as zf:
+                unsafe = WorldService._validate_zip_members(zf, MINECRAFT_DIR)
+                if unsafe:
+                    _cleanup_tmp_zip()
+                    return unsafe
                 test = zf.testzip()
                 if test:
-                    return {'ok': False, 'error': f'Corrupt zip member: {test}'}
-        except Exception:
-            return {'ok': False, 'error': 'Invalid zip archive'}
+                    _cleanup_tmp_zip()
+                    return WorldService._corrupt_archive_error(test)
+        except zipfile.BadZipFile:
+            _cleanup_tmp_zip()
+            return WorldService._invalid_archive_error('Bad zip file')
+        except Exception as exc:
+            _cleanup_tmp_zip()
+            return WorldService._invalid_archive_error(str(exc) or 'Archive open/read failure')
 
         was_running = ServerService.is_running()
         if was_running:
             ServerService.stop()
 
-        WorldService.delete_world_files()
-        with zipfile.ZipFile(tmp_zip, 'r') as zf:
-            zf.extractall(MINECRAFT_DIR)
-
-        if was_running:
-            ServerService.start()
+        try:
+            WorldService.delete_world_files()
+            with zipfile.ZipFile(tmp_zip, 'r') as zf:
+                unsafe = WorldService._safe_extract_zip(zf, MINECRAFT_DIR)
+                if unsafe:
+                    _cleanup_tmp_zip()
+                    return unsafe
+        except zipfile.BadZipFile:
+            _cleanup_tmp_zip()
+            return WorldService._invalid_archive_error('Bad zip file')
+        except Exception as exc:
+            _cleanup_tmp_zip()
+            return WorldService._extract_archive_error('<archive>', str(exc) or 'Archive extraction failure')
+        finally:
+            if was_running:
+                ServerService.start()
 
         return {'ok': True, 'message': 'World uploaded and applied', 'stored_as': tmp_zip.name}

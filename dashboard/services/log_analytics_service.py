@@ -1,10 +1,6 @@
-import subprocess
+from collections import deque
 
 from ..config import LOG_FILE, _player_hist, now_ts
-
-
-def run(cmd: str) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, shell=True, text=True, capture_output=True)
 
 
 class LogService:
@@ -12,8 +8,16 @@ class LogService:
     def tail(lines: int = 120) -> str:
         if not LOG_FILE.exists():
             return 'No logs yet.'
-        cp = run(f'tail -n {lines} {LOG_FILE}')
-        return cp.stdout.strip() if cp.returncode == 0 else (cp.stderr.strip() or 'Failed to read logs')
+
+        try:
+            if lines <= 0:
+                return ''
+
+            with LOG_FILE.open('r', encoding='utf-8', errors='replace') as f:
+                tail_lines = deque((line.rstrip('\r\n') for line in f), maxlen=lines)
+            return '\n'.join(tail_lines)
+        except Exception:
+            return 'Failed to read logs'
 
     @staticmethod
     def diff_from(offset: int, max_bytes: int = 32_768) -> dict:
