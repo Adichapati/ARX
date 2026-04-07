@@ -17,9 +17,8 @@ User decision: defer full manual testing until all planned phases are implemente
   - Editable server.properties controls + API
 
 ## Remaining Priority Work
-1. Gemma safety regression suite expansion
-2. Release pipeline, checksums, artifact pinning, and domain installer handoff
-3. End-to-end terminal validation pass (deferred by user until implementation phases complete)
+1. Release pipeline, checksums, artifact pinning, and domain installer handoff
+2. End-to-end terminal validation pass (deferred by user until implementation phases complete)
 
 ## Recent Commits
 - e3e5eb8 feat: add runtime health panel and editable server properties controls

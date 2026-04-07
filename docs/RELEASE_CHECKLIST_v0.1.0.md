@@ -43,13 +43,13 @@ Exit criteria:
 
 ## Phase 3 — Gemma Assistant Safety Gate
 
-- [ ] Implement strict command allowlist templates for OP actions
-- [ ] Keep regex denylist as second safety layer
-- [ ] Reject unresolved placeholders (`<player>`, `{player}` etc.)
-- [ ] Require OP identity match before any command execution
-- [ ] Confirm command result from `latest.log` before success acknowledgement
-- [ ] Add cooldown/rate limits and anti-spam
-- [ ] Add strict local-model health handling when Ollama/model unavailable (clear errors and guided recovery, no Wilson fallback semantics)
+- [x] Implement strict command allowlist templates for OP actions
+- [x] Keep regex denylist as second safety layer
+- [x] Reject unresolved placeholders (`<player>`, `{player}` etc.)
+- [x] Require OP identity match before any command execution
+- [x] Confirm command result from `latest.log` before success acknowledgement
+- [x] Add cooldown/rate limits and anti-spam
+- [x] Add strict local-model health handling when Ollama/model unavailable (clear errors and guided recovery, no Wilson fallback semantics)
 
 Exit criteria:
 - Blocked commands never reach `tmux send-keys`.
