@@ -49,22 +49,154 @@ STEP_TOTAL=11
 STEP_CUR=0
 
 banner() {
-  if [[ -n "${TERM:-}" ]]; then
+  if [[ -n "${TERM:-}" && "$UI_ENABLED" == true ]]; then
     clear || true
   fi
   cat <<'EOF'
 
- █████╗ ██████╗ ██╗  ██╗
-██╔══██╗██╔══██╗╚██╗██╔╝
-███████║██████╔╝ ╚███╔╝
-██╔══██║██╔══██╗ ██╔██╗
-██║  ██║██║  ██║██╔╝ ██╗
-╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+      ___      ____   __   __
+     /   |    / __ \  \ \ / /
+    / /| |   / /_/ /   \ V /
+   / ___ |  / _, _/     > <
+  /_/  |_| /_/ |_|     /_/\_\
 
-╔══════════════════════════════════════════════════════════════╗
-║   Agentic Runtime for eXecution • OpenClaw-style Setup      ║
-╚══════════════════════════════════════════════════════════════╝
++------------------------------------------------------------------+
+| Agentic Runtime for eXecution | OpenClaw-style Setup            |
++------------------------------------------------------------------+
 EOF
+}
+
+ascii_divider() {
+  local tag="${1:-default}"
+  case "$tag" in
+    port)
+      cat <<'EOF'
+   +-----------+
+   |  PORT CFG |
+   +-----------+
+EOF
+      ;;
+    trigger)
+      cat <<'EOF'
+   (o_o)  say the magic word
+    \  gemma  /
+     \______/
+EOF
+      ;;
+    model)
+      cat <<'EOF'
+   [ GEMMA CORE ]
+   > model select <
+EOF
+      ;;
+    ctx)
+      cat <<'EOF'
+   [########      ]
+   context tuning
+EOF
+      ;;
+    temp)
+      cat <<'EOF'
+   ~ creativity dial ~
+   low <----> high
+EOF
+      ;;
+    admin)
+      cat <<'EOF'
+   +------------+
+   |  ADMIN KEY |
+   +------------+
+EOF
+      ;;
+    *)
+      cat <<'EOF'
+   +-----------+
+   |  ARX SET  |
+   +-----------+
+EOF
+      ;;
+  esac
+}
+
+prompt_with_art() {
+  local title="$1"
+  local tag="$2"
+  local prompt="$3"
+  if [[ "$UI_ENABLED" == true ]]; then
+    banner
+    box "$title"
+  fi
+  ascii_divider "$tag"
+  read -rp "$prompt" REPLY
+  printf '%s' "$REPLY"
+}
+
+select_from_list() {
+  local title="$1"
+  local tag="$2"
+  local default_index="$3"
+  shift 3
+  local options=("$@")
+  local index="$default_index"
+
+  # Fallback mode (non-interactive): print list and ask numeric input
+  if [[ "$UI_ENABLED" != true ]]; then
+    banner
+    box "$title"
+    ascii_divider "$tag"
+    local i
+    for i in "${!options[@]}"; do
+      printf '  [%d] %s\n' "$((i + 1))" "${options[$i]}"
+    done
+    while true; do
+      read -rp "Choose 1-${#options[@]} (default $((default_index + 1))): " REPLY
+      if [[ -z "$REPLY" ]]; then
+        printf '%s' "${options[$default_index]}"
+        return 0
+      fi
+      if [[ "$REPLY" =~ ^[0-9]+$ ]] && (( REPLY >= 1 && REPLY <= ${#options[@]} )); then
+        printf '%s' "${options[$((REPLY - 1))]}"
+        return 0
+      fi
+      echo "Invalid selection, try again."
+    done
+  fi
+
+  while true; do
+    banner
+    box "$title"
+    ascii_divider "$tag"
+    echo "Use Up/Down arrows and Enter to choose."
+    echo
+
+    local i
+    for i in "${!options[@]}"; do
+      if (( i == index )); then
+        printf '  > %s\n' "${options[$i]}"
+      else
+        printf '    %s\n' "${options[$i]}"
+      fi
+    done
+
+    IFS= read -rsn1 key || true
+    if [[ "$key" == "" ]]; then
+      printf '%s' "${options[$index]}"
+      return 0
+    fi
+    if [[ "$key" == $'\x1b' ]]; then
+      IFS= read -rsn2 key2 || true
+      case "$key2" in
+        '[A')
+          ((index--))
+          if (( index < 0 )); then index=$((${#options[@]} - 1)); fi
+          ;;
+        '[B')
+          ((index++))
+          if (( index >= ${#options[@]} )); then index=0; fi
+          ;;
+      esac
+    fi
+  done
 }
 
 intro_animation() {
@@ -246,34 +378,51 @@ ensure_ollama() {
 prompt_if_needed() {
   if [[ -z "$DASHBOARD_PORT" ]]; then
     DASHBOARD_PORT="18890"
-    if [[ "$YES_MODE" == false ]]; then read -rp "Dashboard port [18890]: " _p; DASHBOARD_PORT="${_p:-18890}"; fi
+    if [[ "$YES_MODE" == false ]]; then
+      _p="$(prompt_with_art "Dashboard Port" "port" "Dashboard port [18890]: ")"
+      DASHBOARD_PORT="${_p:-18890}"
+    fi
   fi
 
   if [[ -z "$AGENT_TRIGGER" ]]; then
     AGENT_TRIGGER="gemma"
-    if [[ "$YES_MODE" == false ]]; then read -rp "Agent trigger word [gemma]: " _t; AGENT_TRIGGER="${_t:-gemma}"; fi
+    if [[ "$YES_MODE" == false ]]; then
+      _t="$(prompt_with_art "Trigger Word" "trigger" "Agent trigger word [gemma]: ")"
+      AGENT_TRIGGER="${_t:-gemma}"
+    fi
   fi
 
   if [[ -z "$GEMMA_MODEL" ]]; then
     GEMMA_MODEL="gemma4:e2b"
-    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma model [gemma4:e2b]: " _m; GEMMA_MODEL="${_m:-gemma4:e2b}"; fi
+    if [[ "$YES_MODE" == false ]]; then
+      GEMMA_MODEL="$(select_from_list "Choose Gemma model" "model" 0 "gemma4:e2b" "gemma3:latest" "gemma2:9b")"
+    fi
   fi
 
   if [[ -z "$GEMMA_CONTEXT_SIZE" ]]; then
     GEMMA_CONTEXT_SIZE="8192"
-    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma context size [8192]: " _c; GEMMA_CONTEXT_SIZE="${_c:-8192}"; fi
+    if [[ "$YES_MODE" == false ]]; then
+      GEMMA_CONTEXT_SIZE="$(select_from_list "Choose context size" "ctx" 1 "4096" "8192" "12288" "16384" "32768")"
+    fi
   fi
 
   if [[ -z "$GEMMA_TEMPERATURE" ]]; then
     GEMMA_TEMPERATURE="0.2"
-    if [[ "$YES_MODE" == false ]]; then read -rp "Gemma temperature [0.2]: " _tt; GEMMA_TEMPERATURE="${_tt:-0.2}"; fi
+    if [[ "$YES_MODE" == false ]]; then
+      GEMMA_TEMPERATURE="$(select_from_list "Choose temperature" "temp" 1 "0.1" "0.2" "0.3" "0.5" "0.7")"
+    fi
   fi
 
   ADMIN_USER="admin"
   ADMIN_PASS=""
   if [[ "$YES_MODE" == false ]]; then
-    read -rp "Admin username [admin]: " _u
+    _u="$(prompt_with_art "Admin Account" "admin" "Admin username [admin]: ")"
     ADMIN_USER="${_u:-admin}"
+    if [[ "$UI_ENABLED" == true ]]; then
+      banner
+      box "Admin Account"
+      ascii_divider "admin"
+    fi
     read -rsp "Admin password - leave blank to auto-generate: " _pw
     echo
     ADMIN_PASS="${_pw:-}"
