@@ -67,7 +67,7 @@ class PlayerService:
         if u.lower() not in {x.lower() for x in cur}:
             cur.append(u)
         saved = PlayerService._write_list(KNOWN_PLAYERS_PATH, cur)
-        if sync_runtime and ServerService.tmux_session_exists():
+        if sync_runtime:
             ServerService.send_console_command(f'op {u}', unsafe_ok=True)
         return saved
 
@@ -76,7 +76,7 @@ class PlayerService:
         u = PlayerService._validate_username(username)
         cur = [x for x in PlayerService.get_ops() if x.lower() != u.lower()]
         saved = PlayerService._write_list(KNOWN_PLAYERS_PATH, cur)
-        if sync_runtime and ServerService.tmux_session_exists():
+        if sync_runtime:
             ServerService.send_console_command(f'deop {u}', unsafe_ok=True)
         return saved
 
@@ -87,7 +87,7 @@ class PlayerService:
         if u.lower() not in {x.lower() for x in cur}:
             cur.append(u)
         saved = PlayerService._write_list(WHITELIST_PATH, cur)
-        if sync_runtime and ServerService.tmux_session_exists():
+        if sync_runtime:
             ServerService.send_console_command(f'whitelist add {u}', unsafe_ok=True)
         return saved
 
@@ -96,7 +96,7 @@ class PlayerService:
         u = PlayerService._validate_username(username)
         cur = [x for x in PlayerService.get_whitelist() if x.lower() != u.lower()]
         saved = PlayerService._write_list(WHITELIST_PATH, cur)
-        if sync_runtime and ServerService.tmux_session_exists():
+        if sync_runtime:
             ServerService.send_console_command(f'whitelist remove {u}', unsafe_ok=True)
         return saved
 

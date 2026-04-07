@@ -128,7 +128,7 @@ if "%YES_MODE%"=="0" (
 )
 
 if "%YES_MODE%"=="0" (
-  set /p ADMIN_PASS=Admin password (leave blank for auto-generated): 
+  set /p ADMIN_PASS=Admin password - leave blank for auto-generated: 
 ) else (
   set ADMIN_PASS=
 )

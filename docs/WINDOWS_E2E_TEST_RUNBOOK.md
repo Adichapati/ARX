@@ -53,8 +53,8 @@ Open in browser:
 3. Runtime health shows statuses
 4. First-run Gemma setup saves
 5. Server properties save/reload works
-6. OP/whitelist panel add/remove works
-7. Console send command works
+6. OP/whitelist panel add/remove works (persist + API path)
+7. Console send command works on Linux/tmux runtime; on native Windows this currently returns a clear "console passthrough unavailable" message
 8. WebSocket logs stream and reconnect cleanly after refresh/network blip
 
 ## 5) Gemma safety checks
