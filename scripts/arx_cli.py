@@ -682,6 +682,8 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
         print(f'configured: enabled={str(playit_enabled()).lower()} url={playit_url() or "not-set"}')
         if not running:
             print('tip: run "arx tunnel setup" to start playit agent')
+        else:
+            print('tip: run "arx tunnel open" to open the configured address')
         return 0
 
     if action == 'setup':

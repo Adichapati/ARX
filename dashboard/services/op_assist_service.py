@@ -5,6 +5,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 from ..config import (
     AGENT_TRIGGER,
@@ -87,6 +88,36 @@ class OpAssistService:
             del buf[:-10]
 
     @staticmethod
+    def _extract_command_from_text(user: str, content: str) -> Optional[str]:
+        """Heuristic rescue parser when model JSON output is malformed."""
+        t = (content or '').strip()
+        if not t:
+            return None
+
+        # Strip fences and obvious chatter prefixes.
+        t = re.sub(r'^```(?:json)?\s*', '', t, flags=re.IGNORECASE).strip()
+        t = re.sub(r'\s*```$', '', t).strip()
+        t = re.sub(r'^(ok|sure|done|i\'ll do that|running)[:\-\s]+', '', t, flags=re.IGNORECASE).strip()
+
+        # If it already looks like a command, accept first line.
+        first = t.splitlines()[0].strip() if t.splitlines() else t
+        if first.startswith('/'):
+            first = first[1:].strip()
+        if re.match(r'^(give|time\s+set|weather|gamemode|tp|teleport|effect|summon|kill|say|clear|xp|experience|setworldspawn|spawnpoint|execute\s+in)\b', first, flags=re.IGNORECASE):
+            return first
+
+        # Try extracting command after keywords.
+        m = re.search(r'(?:run|command)\s*[:\-]\s*(.+)$', t, flags=re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip().splitlines()[0].strip()
+            if cand.startswith('/'):
+                cand = cand[1:].strip()
+            if cand:
+                return cand
+
+        return None
+
+    @staticmethod
     def _llm_call(user: str, text: str) -> dict:
         # Fallback if LLM disabled
         if not GEMMA_ENABLED:
@@ -103,11 +134,14 @@ class OpAssistService:
             "Rules:\n"
             "- Be concise and friendly.\n"
             "- If user asks a normal question, use type=chat.\n"
-            "- If user asks for action, produce one valid minecraft server command in command field (no slash prefix).\n"
+            "- If user asks for action, ALWAYS use type=command and provide exactly one valid Minecraft console command (no slash prefix).\n"
             f"- The current player name is '{user}'. Use that exact name when targeting the player.\n"
             "- Commands run from server console context (not player chat), so target the user explicitly where needed.\n"
             f"- Example: for gamemode use 'gamemode creative {user}'.\n"
             f"- Example: for teleport to nether use 'execute in minecraft:the_nether run tp {user} 0 80 0'.\n"
+            f"- Example: for giving items use 'give {user} minecraft:diamond_sword 1'.\n"
+            f"- Example: spawn dragon on player -> 'execute at {user} run summon minecraft:ender_dragon ~ ~ ~'.\n"
+            "- Never say you cannot do actions directly; convert request to a command instead.\n"
             "- Never use placeholders like <playername>, <player>, {player}, playername.\n"
             "- Never output host shell commands.\n"
             "- Never include 'confirm' flow.\n"
@@ -140,9 +174,12 @@ class OpAssistService:
             with urllib.request.urlopen(req, timeout=20) as r:
                 raw = r.read().decode('utf-8', errors='replace')
         except urllib.error.HTTPError as e:
+            # Avoid vague drift after temporary API failures.
+            if int(getattr(e, 'code', 0) or 0) >= 500:
+                return {'type': 'chat', 'say': "Model backend is overloaded. Retry in a few seconds or lower context with: arx ai set-context 4096"}
             return {'type': 'chat', 'say': f"I hit API error ({e.code}). Try again."}
         except Exception:
-            return {'type': 'chat', 'say': "I'm having connection issues right now. Try again in a moment."}
+            return {'type': 'chat', 'say': "Model backend connection issue. Retry in a moment."}
 
         # parse OpenAI-like response
         try:
@@ -161,6 +198,10 @@ class OpAssistService:
                 raise ValueError('bad schema')
             return obj
         except Exception:
+            # rescue path: if model output still contains a command-like line, execute it instead of chat-only drift
+            rescue = OpAssistService._extract_command_from_text(user, content)
+            if rescue:
+                return {'type': 'command', 'command': rescue, 'say': f'running: {rescue}'}
             # fallback: treat as chat
             return {'type': 'chat', 'say': content[:GEMMA_MAX_REPLY_CHARS]}
 
