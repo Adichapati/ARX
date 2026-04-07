@@ -12,6 +12,8 @@ GEMMA_MODEL=""
 GEMMA_CONTEXT_SIZE=""
 GEMMA_TEMPERATURE=""
 MC_VERSION=""
+PLAYIT_ENABLED=""
+PLAYIT_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,9 +25,11 @@ while [[ $# -gt 0 ]]; do
     --context-size) GEMMA_CONTEXT_SIZE="${2:-}"; shift 2 ;;
     --temperature) GEMMA_TEMPERATURE="${2:-}"; shift 2 ;;
     --mc-version) MC_VERSION="${2:-}"; shift 2 ;;
+    --playit-enabled) PLAYIT_ENABLED="${2:-}"; shift 2 ;;
+    --playit-url) PLAYIT_URL="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
-      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2] [--mc-version 1.20.4]"
+      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 8192] [--temperature 0.2] [--mc-version 1.20.4] [--playit-enabled true|false] [--playit-url <public-tunnel>]"
       exit 1
       ;;
   esac
@@ -377,6 +381,41 @@ ensure_ollama() {
   fi
 }
 
+ensure_playit() {
+  if [[ "${PLAYIT_ENABLED,,}" != "true" ]]; then
+    return
+  fi
+
+  if ! need_cmd playit; then
+    log "Playit not found. Installing playit agent..."
+    if [[ "$PLATFORM" == "linux" ]]; then
+      local arch
+      arch="$(uname -m)"
+      local asset="playit-linux-amd64"
+      case "$arch" in
+        aarch64|arm64) asset="playit-linux-aarch64" ;;
+        armv7l) asset="playit-linux-armv7" ;;
+        i386|i686) asset="playit-linux-i686" ;;
+      esac
+      local url="https://github.com/playit-cloud/playit-agent/releases/latest/download/${asset}"
+      mkdir -p "$HOME/.local/bin"
+      curl -fL "$url" -o "$HOME/.local/bin/playit"
+      chmod +x "$HOME/.local/bin/playit"
+      if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        log "Playit installed to ~/.local/bin/playit (add ~/.local/bin to PATH if needed)."
+      fi
+    elif [[ "$PLATFORM" == "macos" ]]; then
+      err "Auto-install for Playit on macOS is not configured yet. Install from https://playit.gg/download"
+      exit 1
+    else
+      err "Unsupported OS for automatic Playit install in install.sh."
+      exit 1
+    fi
+  fi
+
+  log "Playit enabled. Complete tunnel claim after install using: arx tunnel setup"
+}
+
 prompt_if_needed() {
   if [[ -z "$DASHBOARD_PORT" ]]; then
     DASHBOARD_PORT="18890"
@@ -423,6 +462,23 @@ prompt_if_needed() {
     fi
   fi
 
+  if [[ -z "$PLAYIT_ENABLED" ]]; then
+    PLAYIT_ENABLED="false"
+    if [[ "$YES_MODE" == false ]]; then
+      _pe="$(select_from_list "Public Internet Access" "default" 0 "false (LAN only)" "true (use Playit tunnel)")"
+      if [[ "$_pe" == true* ]]; then
+        PLAYIT_ENABLED="true"
+      else
+        PLAYIT_ENABLED="false"
+      fi
+    fi
+  fi
+
+  if [[ "${PLAYIT_ENABLED,,}" == "true" && -z "$PLAYIT_URL" && "$YES_MODE" == false ]]; then
+    _pu="$(prompt_with_art "Playit URL" "default" "Optional existing Playit public URL (leave blank to set up later): ")"
+    PLAYIT_URL="${_pu:-}"
+  fi
+
   ADMIN_USER="admin"
   ADMIN_PASS=""
   if [[ "$YES_MODE" == false ]]; then
@@ -461,6 +517,12 @@ validate_inputs() {
   awk -v t="$GEMMA_TEMPERATURE" 'BEGIN{exit (t>=0 && t<=2)?0:1}' || { err "Temperature must be 0..2"; exit 1; }
 
   if ! [[ "$MC_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then err "Minecraft version must look like 1.20.4"; exit 1; fi
+
+  PLAYIT_ENABLED="$(echo "$PLAYIT_ENABLED" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$PLAYIT_ENABLED" != "true" && "$PLAYIT_ENABLED" != "false" ]]; then
+    err "PLAYIT_ENABLED must be true or false"
+    exit 1
+  fi
 }
 
 show_summary() {
@@ -472,6 +534,10 @@ show_summary() {
   echo "  Context size     : $GEMMA_CONTEXT_SIZE"
   echo "  Temperature      : $GEMMA_TEMPERATURE"
   echo "  Minecraft ver    : $MC_VERSION"
+  echo "  Playit enabled   : $PLAYIT_ENABLED"
+  if [[ -n "$PLAYIT_URL" ]]; then
+    echo "  Playit URL       : $PLAYIT_URL"
+  fi
   echo "  Admin user       : $ARX_ADMIN_USER"
 }
 
@@ -523,6 +589,8 @@ write_env() {
   ARX_MODEL="$GEMMA_MODEL" \
   ARX_CONTEXT_SIZE="$GEMMA_CONTEXT_SIZE" \
   ARX_TEMPERATURE="$GEMMA_TEMPERATURE" \
+  ARX_PLAYIT_ENABLED="$PLAYIT_ENABLED" \
+  ARX_PLAYIT_URL="$PLAYIT_URL" \
   python3 scripts/generate_env.py --output .env
 }
 
@@ -541,6 +609,8 @@ obj = {
   'gemma_temperature': float(os.environ.get('GEMMA_TEMPERATURE','0.2')),
   'gemma_max_reply_chars': 220,
   'gemma_cooldown_sec': 2.5,
+  'playit_enabled': os.environ.get('PLAYIT_ENABLED','false').lower() == 'true',
+  'playit_url': os.environ.get('PLAYIT_URL',''),
 }
 p.write_text(json.dumps(obj, indent=2), encoding='utf-8')
 print('Wrote state/arx_config.json')
@@ -575,6 +645,8 @@ EOF
   echo "  Help command  : arx help"
   echo "  Status        : arx status"
   echo "  Shutdown      : arx shutdown"
+  echo "  Tunnel setup  : arx tunnel setup"
+  echo "  Tunnel status : arx tunnel status"
   if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
     echo "  ARX launcher  : $HOME/.local/bin/arx"
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
@@ -595,7 +667,7 @@ run_step() {
   fi
 }
 
-export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE MC_VERSION
+export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE MC_VERSION PLAYIT_ENABLED PLAYIT_URL
 
 banner
 intro_animation
@@ -609,6 +681,7 @@ transition "Running installation pipeline"
 run_step "Prerequisite checks" install_prereqs
 run_step "Python environment" setup_python
 run_step "Ollama + model readiness" ensure_ollama
+run_step "Playit tunnel readiness" ensure_playit
 run_step "Project directories" setup_files
 run_step "Minecraft server jar" download_server_jar
 run_step "Secure env generation" write_env

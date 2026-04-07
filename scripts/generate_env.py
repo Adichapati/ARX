@@ -23,6 +23,8 @@ def main() -> int:
     parser.add_argument('--trigger', default='gemma')
     parser.add_argument('--model', default='gemma4:e2b')
     parser.add_argument('--ollama-url', default='http://localhost:11434/v1/chat/completions')
+    parser.add_argument('--playit-enabled', default='false')
+    parser.add_argument('--playit-url', default='')
     args = parser.parse_args()
 
     import os
@@ -33,6 +35,8 @@ def main() -> int:
     trigger = args.trigger or os.environ.get('ARX_TRIGGER', 'gemma')
     model = args.model or os.environ.get('ARX_MODEL', 'gemma4:e2b')
     ollama_url = args.ollama_url or os.environ.get('ARX_OLLAMA_URL', 'http://localhost:11434/v1/chat/completions')
+    playit_enabled = (args.playit_enabled or os.environ.get('ARX_PLAYIT_ENABLED', 'false')).strip().lower()
+    playit_url = args.playit_url or os.environ.get('ARX_PLAYIT_URL', '')
     context_size = os.environ.get('ARX_CONTEXT_SIZE', '8192')
     temperature = os.environ.get('ARX_TEMPERATURE', '0.2')
 
@@ -54,6 +58,8 @@ GEMMA_COOLDOWN_SEC=2.5
 AGENT_TRIGGER={trigger}
 GEMMA_CONTEXT_SIZE={context_size}
 GEMMA_TEMPERATURE={temperature}
+PLAYIT_ENABLED={playit_enabled}
+PLAYIT_URL={playit_url}
 """
 
     out = Path(args.output)

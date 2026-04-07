@@ -63,6 +63,14 @@ def dashboard_url() -> str:
     return f"http://localhost:{bind_port()}/"
 
 
+def playit_enabled() -> bool:
+    return cfg('PLAYIT_ENABLED', 'false').strip().lower() == 'true'
+
+
+def playit_url() -> str:
+    return cfg('PLAYIT_URL', '').strip()
+
+
 def _port_open(host: str, port: int, timeout: float = 0.35) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -321,16 +329,81 @@ def _tail(path: Path, lines: int) -> str:
     return '\n'.join(data[-lines:])
 
 
+def _playit_running() -> bool:
+    for proc in psutil.process_iter(['name', 'cmdline']):
+        try:
+            name = (proc.info.get('name') or '').lower()
+            cmd = ' '.join(proc.info.get('cmdline') or []).lower()
+            if 'playit' in name or 'playit' in cmd:
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return False
+
+
+def _start_playit() -> tuple[bool, str]:
+    if _playit_running():
+        return True, 'already running'
+
+    exe = shutil.which('playit')
+    if not exe:
+        if os.name == 'nt':
+            exe = str(Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs' / 'playit_gg' / 'bin' / 'playit.exe')
+            if not Path(exe).exists():
+                return False, 'playit not found; install from https://playit.gg/download'
+        else:
+            return False, 'playit not found; install from https://playit.gg/download'
+
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = STATE_DIR / 'playit.log'
+    try:
+        with log_path.open('ab') as out:
+            if os.name == 'nt':
+                subprocess.Popen(
+                    [exe],
+                    cwd=str(ROOT),
+                    stdout=out,
+                    stderr=out,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=_win_creationflags(),
+                    startupinfo=_win_startupinfo_hidden(),
+                )
+            else:
+                subprocess.Popen([exe], cwd=str(ROOT), stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True)
+        return True, 'started (claim link will appear in playit log on first run)'
+    except Exception as e:
+        return False, f'failed: {e}'
+
+
+def _stop_playit() -> tuple[bool, str]:
+    procs: list[psutil.Process] = []
+    for proc in psutil.process_iter(['name', 'cmdline']):
+        try:
+            name = (proc.info.get('name') or '').lower()
+            cmd = ' '.join(proc.info.get('cmdline') or []).lower()
+            if 'playit' in name or 'playit' in cmd:
+                procs.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    if not procs:
+        return True, 'not running'
+    n = _terminate_processes(procs)
+    return True, f'stopped {n} process(es)'
+
+
 def cmd_help(_: argparse.Namespace) -> int:
     print('ARX command help\n')
     print('  arx help                    Show this help menu')
     print('  arx start [target]          Start services (all|dashboard|ollama|server); default all')
     print('  arx stop                    Stop dashboard + minecraft (keeps ollama running)')
-    print('  arx shutdown                Stop dashboard + minecraft + ollama')
+    print('  arx shutdown                Stop dashboard + minecraft + ollama (+playit if running)')
     print('  arx restart                 Restart dashboard + minecraft (keeps ollama policy of start)')
-    print('  arx status                  Show status of dashboard/server/ollama')
+    print('  arx status                  Show status of dashboard/server/ollama/playit')
     print('  arx open                    Open dashboard in default browser')
-    print('  arx logs [target]           Show logs (dashboard|server|ollama), default dashboard')
+    print('  arx logs [target]           Show logs (dashboard|server|ollama|playit), default dashboard')
+    print('  arx tunnel setup            Start Playit tunnel agent')
+    print('  arx tunnel status           Show Playit tunnel status + configured URL')
+    print('  arx tunnel stop             Stop Playit tunnel agent')
     print('  arx version                 Show ARX CLI version')
     print('')
     print('examples:')
@@ -338,6 +411,7 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx start dashboard         # only start dashboard')
     print('  arx start ollama            # only start ollama')
     print('  arx start server            # only start minecraft server')
+    print('  arx tunnel setup            # launch playit and claim tunnel')
     return 0
 
 
@@ -345,9 +419,12 @@ def cmd_status(_: argparse.Namespace) -> int:
     dash = bool(_find_dashboard_procs() or _port_open('127.0.0.1', bind_port()))
     server = bool(_find_server_procs())
     ollama = _ollama_ok()
+    p_enabled = playit_enabled()
+    p_running = _playit_running()
     print(f'dashboard: {"up" if dash else "down"}  ({dashboard_url()})')
     print(f'minecraft: {"up" if server else "down"}  ({minecraft_dir()})')
     print(f'ollama:    {"up" if ollama else "down"}  (http://127.0.0.1:11434)')
+    print(f'playit:    {"up" if p_running else "down"}  (enabled={str(p_enabled).lower()}, url={playit_url() or "not-set"})')
     return 0
 
 
@@ -411,6 +488,8 @@ def cmd_stop(_: argparse.Namespace) -> int:
     print(f'minecraft: {msg_s}')
     # Option A: keep ollama running on stop
     print('ollama: kept running (use "arx shutdown" to stop all)')
+    if playit_enabled():
+        print('playit: left running (use "arx tunnel stop" or "arx shutdown" to stop tunnel)')
     return 0 if (ok_d and ok_s) else 1
 
 
@@ -418,7 +497,9 @@ def cmd_shutdown(_: argparse.Namespace) -> int:
     _ = cmd_stop(argparse.Namespace())
     ok_o, msg_o = _stop_ollama()
     print(f'ollama: {msg_o}')
-    return 0 if ok_o else 1
+    ok_p, msg_p = _stop_playit()
+    print(f'playit: {msg_p}')
+    return 0 if (ok_o and ok_p) else 1
 
 
 def cmd_restart(_: argparse.Namespace) -> int:
@@ -446,8 +527,10 @@ def cmd_logs(args: argparse.Namespace) -> int:
         p1 = STATE_DIR / 'ollama.log'
         p2 = Path('/tmp/arx-ollama.log')
         path = p1 if p1.exists() else p2
+    elif target == 'playit':
+        path = STATE_DIR / 'playit.log'
     else:
-        print('unknown target; use dashboard|server|ollama', file=sys.stderr)
+        print('unknown target; use dashboard|server|ollama|playit', file=sys.stderr)
         return 1
 
     print(_tail(path, lines))
@@ -457,6 +540,34 @@ def cmd_logs(args: argparse.Namespace) -> int:
 def cmd_version(_: argparse.Namespace) -> int:
     print('arx-cli v0.1.0')
     return 0
+
+
+def cmd_tunnel(args: argparse.Namespace) -> int:
+    action = str(getattr(args, 'action', 'status') or 'status').lower()
+
+    if action == 'status':
+        running = _playit_running()
+        print(f'playit: {"up" if running else "down"}')
+        print(f'configured: enabled={str(playit_enabled()).lower()} url={playit_url() or "not-set"}')
+        if not running:
+            print('tip: run "arx tunnel setup" to start playit agent')
+        return 0
+
+    if action == 'setup':
+        ok, msg = _start_playit()
+        print(f'playit: {msg}')
+        if ok:
+            print('Next step: open https://playit.gg, claim agent, and create TCP tunnel to 127.0.0.1:25565')
+            print('Then set PLAYIT_URL in .env for status display (optional).')
+        return 0 if ok else 1
+
+    if action == 'stop':
+        ok, msg = _stop_playit()
+        print(f'playit: {msg}')
+        return 0 if ok else 1
+
+    print('unknown tunnel action; use setup|status|stop', file=sys.stderr)
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -483,6 +594,9 @@ def build_parser() -> argparse.ArgumentParser:
     lp.add_argument('target', nargs='?', default='dashboard')
     lp.add_argument('--lines', type=int, default=120)
 
+    tp = sp.add_parser('tunnel')
+    tp.add_argument('action', nargs='?', default='status', choices=('setup', 'status', 'stop'))
+
     sp.add_parser('version')
     sp.add_parser('--help')
     sp.add_parser('-h')
@@ -507,6 +621,7 @@ def main() -> int:
         'status': cmd_status,
         'open': cmd_open,
         'logs': cmd_logs,
+        'tunnel': cmd_tunnel,
         'version': cmd_version,
     }
     fn = table.get(cmd)

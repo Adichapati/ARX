@@ -6,7 +6,9 @@ param(
     [string]$Model = 'gemma4:e2b',
     [int]$ContextSize = 8192,
     [double]$Temperature = 0.2,
-    [string]$McVersion = '1.20.4'
+    [string]$McVersion = '1.20.4',
+    [bool]$PlayitEnabled = $false,
+    [string]$PlayitUrl = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -276,6 +278,18 @@ function Validate-Inputs {
     if ($McVersion -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw 'Minecraft version must look like 1.20.4.' }
 }
 
+function Ensure-Playit {
+    if (-not $PlayitEnabled) { return }
+
+    if (-not (Get-Command playit -ErrorAction SilentlyContinue)) {
+        Write-Host 'Playit not found. Attempting install via winget...' -ForegroundColor Yellow
+        Require-Command winget 'winget not found. Install Playit manually: https://playit.gg/download'
+        & winget install DevelopedMethods.playit -e --accept-package-agreements --accept-source-agreements
+    }
+
+    Write-Host 'Playit enabled. Complete tunnel claim after install using: arx tunnel setup' -ForegroundColor Yellow
+}
+
 function Install-ArxLauncher {
     $targetDir = Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\WindowsApps'
     if (-not (Test-Path $targetDir)) {
@@ -325,6 +339,12 @@ try {
 
         $Temperature = [double](Select-FromList -Title 'Choose temperature' -Options @('0.1','0.2','0.3','0.5','0.7') -DefaultIndex 1 -ArtTag 'temp' -Hint 'Lower = stricter, higher = more creative.')
 
+        $playitChoice = Select-FromList -Title 'Public Internet Access' -Options @('false (LAN only)','true (use Playit tunnel)') -DefaultIndex 0 -ArtTag 'default' -Hint 'Enable Playit tunnel setup for internet players?'
+        $PlayitEnabled = $playitChoice.StartsWith('true')
+        if ($PlayitEnabled -and [string]::IsNullOrWhiteSpace($PlayitUrl)) {
+            $PlayitUrl = Prompt-TextWithArt -Title 'Playit URL' -ArtTag 'default' -PromptText 'Optional existing Playit public URL (leave blank to set up later)'
+        }
+
         $adminUser = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin username [admin]'
         if (-not $adminUser) { $adminUser = 'admin' }
         $adminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password - leave blank for auto-generated'
@@ -344,11 +364,13 @@ try {
     Write-Host "  Context size     : $ContextSize" -ForegroundColor Cyan
     Write-Host "  Temperature      : $Temperature" -ForegroundColor Cyan
     Write-Host "  Minecraft ver    : $McVersion" -ForegroundColor Cyan
+    Write-Host "  Playit enabled   : $PlayitEnabled" -ForegroundColor Cyan
+    if ($PlayitUrl) { Write-Host "  Playit URL       : $PlayitUrl" -ForegroundColor Cyan }
     Write-Host "  Admin user       : $adminUser" -ForegroundColor Cyan
 
     Show-Transition 'Running installation pipeline'
 
-    $step = 0; $total = 9
+    $step = 0; $total = 10
 
     Step (++$step) $total 'Prerequisite checks' {
         Require-Command python 'Python 3.11+ is required'
@@ -365,6 +387,10 @@ try {
 
     Step (++$step) $total 'Ollama readiness' {
         Ensure-Ollama -ModelName $Model
+    }
+
+    Step (++$step) $total 'Playit tunnel readiness' {
+        Ensure-Playit
     }
 
     Step (++$step) $total 'Project directories' {
@@ -388,6 +414,8 @@ try {
             $env:ARX_MODEL = "$Model"
             $env:ARX_CONTEXT_SIZE = "$ContextSize"
             $env:ARX_TEMPERATURE = "$Temperature"
+            $env:ARX_PLAYIT_ENABLED = ($(if($PlayitEnabled){'true'}else{'false'}))
+            $env:ARX_PLAYIT_URL = "$PlayitUrl"
             & .\.venv\Scripts\python scripts\generate_env.py --output .env
         }
     }
@@ -401,6 +429,8 @@ try {
             gemma_temperature = $Temperature
             gemma_max_reply_chars = 220
             gemma_cooldown_sec = 2.5
+            playit_enabled = $PlayitEnabled
+            playit_url = $PlayitUrl
         }
         $cfg | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 state/arx_config.json
     }
@@ -415,6 +445,8 @@ try {
     Write-Host "  Help command  : arx help"
     Write-Host "  Status        : arx status"
     Write-Host "  Shutdown      : arx shutdown"
+    Write-Host "  Tunnel setup  : arx tunnel setup"
+    Write-Host "  Tunnel status : arx tunnel status"
     Write-Host "  Launcher path : $env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\arx.bat"
     Write-Host "  Gemma trigger : $Trigger"
     Show-Transition 'All done'

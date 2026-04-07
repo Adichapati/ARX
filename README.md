@@ -87,12 +87,30 @@ arx shutdown
 - `arx start ollama` — Start Ollama only
 - `arx start server` — Start Minecraft server only
 - `arx stop` — Stop dashboard + Minecraft (keeps Ollama running)
-- `arx shutdown` — Stop dashboard + Minecraft + Ollama
+- `arx shutdown` — Stop dashboard + Minecraft + Ollama (+ Playit tunnel if running)
 - `arx restart` — Restart stack
-- `arx status` — Show live service status
+- `arx status` — Show live service status (dashboard/server/ollama/playit)
 - `arx open` — Open dashboard in browser
-- `arx logs [dashboard|server|ollama]` — Tail logs
+- `arx logs [dashboard|server|ollama|playit]` — Tail logs
+- `arx tunnel setup` — Start Playit and complete tunnel claim flow
+- `arx tunnel status` — Show Playit status + configured public URL
+- `arx tunnel stop` — Stop Playit tunnel agent
 - `arx version` — Print ARX CLI version
+
+## Public Internet Access (Playit)
+
+ARX setup now includes Playit enablement for easier public join flow.
+
+After setup:
+
+```bash
+arx tunnel setup
+arx tunnel status
+arx logs playit --lines 120
+```
+
+Then create/verify a Playit TCP tunnel target to `127.0.0.1:25565`.
+Share the resulting public Playit address with friends.
 
 ## Tech Stack
 - Python 3.11+
