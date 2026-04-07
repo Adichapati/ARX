@@ -21,7 +21,7 @@ If you already downloaded source, just `cd` into project root.
 
 ## 2) Run installer (Windows path)
 
-Preferred (PowerShell, best visuals):
+Preferred (PowerShell, best visuals + interactive option lists):
 ```powershell
 .\install.ps1
 ```

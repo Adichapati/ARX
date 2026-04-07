@@ -14,11 +14,11 @@ Set-Location -Path $PSScriptRoot
 function Show-Banner {
     Clear-Host
     Write-Host ""
-    Write-Host "    ___    ____  __  __" -ForegroundColor Cyan
-    Write-Host "   /   |  / __ \/\ \/ /" -ForegroundColor Cyan
-    Write-Host "  / /| | / /_/ /  \  / " -ForegroundColor Green
-    Write-Host " / ___ |/ _, _/   / /  " -ForegroundColor Yellow
-    Write-Host "/_/  |_/_/ |_|   /_/   " -ForegroundColor Magenta
+    Write-Host "    AAAAA   RRRRR   XX   XX" -ForegroundColor Cyan
+    Write-Host "   AA   AA  RR  RR   XX XX " -ForegroundColor Cyan
+    Write-Host "   AAAAAAA  RRRRR     XXX  " -ForegroundColor Green
+    Write-Host "   AA   AA  RR  RR   XX XX " -ForegroundColor Yellow
+    Write-Host "   AA   AA  RR   RR XX   XX" -ForegroundColor Magenta
     Write-Host ""
     Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host "| Agentic Runtime for eXecution | OpenClaw-style Setup        |" -ForegroundColor White
@@ -30,11 +30,11 @@ function Show-TitleAnimation {
     if ($Yes) { return }
 
     $lines = @(
-        "    ___    ____  __  __",
-        "   /   |  / __ \/\ \/ /",
-        "  / /| | / /_/ /  \  / ",
-        " / ___ |/ _, _/   / /  ",
-        "/_/  |_/_/ |_|   /_/   "
+        "    AAAAA   RRRRR   XX   XX",
+        "   AA   AA  RR  RR   XX XX ",
+        "   AAAAAAA  RRRRR     XXX  ",
+        "   AA   AA  RR  RR   XX XX ",
+        "   AA   AA  RR   RR XX   XX"
     )
     $colors = @('DarkCyan','Cyan','Green','Yellow','Magenta')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
@@ -90,6 +90,39 @@ function Show-Box([string]$Title) {
     Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host "| $Title" -ForegroundColor White
     Write-Host "+--------------------------------------------------------------+" -ForegroundColor DarkGray
+}
+
+function Show-AsciiDivider([string]$Tag) {
+    $art = switch ($Tag) {
+        'port'    { @('   ┌───────────┐','   │  PORT ⚙️  │','   └───────────┘') }
+        'trigger' { @('   (•‿•)  say the magic word','    \  gemma  /','     \______/') }
+        'model'   { @('   [ GEMMA CORE ]','   > model select <') }
+        'ctx'     { @('   [########      ]','   context tuning') }
+        'temp'    { @('   ~ creativity dial ~','   low ◄──► high') }
+        'admin'   { @('   ╔════════════╗','   ║  ADMIN 🔐  ║','   ╚════════════╝') }
+        default   { @('   +-----------+','   |  ARX SET  |','   +-----------+') }
+    }
+    foreach ($line in $art) { Write-Host $line -ForegroundColor DarkGray }
+}
+
+function Select-FromList([string]$Title, [string[]]$Options, [int]$DefaultIndex = 0) {
+    Write-Host ""
+    Write-Host "[ARX] $Title" -ForegroundColor Yellow
+    for ($i=0; $i -lt $Options.Count; $i++) {
+        if ($i -eq $DefaultIndex) {
+            Write-Host ("  {0}) {1}  [default]" -f ($i+1), $Options[$i]) -ForegroundColor Cyan
+        } else {
+            Write-Host ("  {0}) {1}" -f ($i+1), $Options[$i]) -ForegroundColor Gray
+        }
+    }
+    $pick = Read-Host ("Choose 1-{0} (Enter for default)" -f $Options.Count)
+    if (-not $pick) { return $Options[$DefaultIndex] }
+    if ($pick -match '^[0-9]+$') {
+        $n = [int]$pick
+        if ($n -ge 1 -and $n -le $Options.Count) { return $Options[$n-1] }
+    }
+    Write-Host "Invalid choice, using default." -ForegroundColor DarkYellow
+    return $Options[$DefaultIndex]
 }
 
 function Step([int]$Index, [int]$Total, [string]$Name, [scriptblock]$Action) {
@@ -163,21 +196,26 @@ try {
     Show-Box "Interactive First-Run"
 
     if (-not $Yes) {
+        Show-AsciiDivider 'port'
         $inPort = Read-Host "Dashboard port [$Port]"
         if ($inPort) { $Port = [int]$inPort }
 
+        Show-AsciiDivider 'trigger'
         $inTrig = Read-Host "Agent trigger word [$Trigger]"
         if ($inTrig) { $Trigger = $inTrig }
 
-        $inModel = Read-Host "Gemma model [$Model]"
-        if ($inModel) { $Model = $inModel }
+        Show-AsciiDivider 'model'
+        $Model = Select-FromList -Title 'Choose Gemma model' -Options @('gemma4:e2b','gemma3:latest','gemma2:9b') -DefaultIndex 0
 
-        $inCtx = Read-Host "Gemma context size [$ContextSize]"
-        if ($inCtx) { $ContextSize = [int]$inCtx }
+        Show-AsciiDivider 'ctx'
+        $ctxPick = Select-FromList -Title 'Choose context size' -Options @('4096','8192','12288','16384','32768') -DefaultIndex 1
+        $ContextSize = [int]$ctxPick
 
-        $inTemp = Read-Host "Gemma temperature [$Temperature]"
-        if ($inTemp) { $Temperature = [double]$inTemp }
+        Show-AsciiDivider 'temp'
+        $tempPick = Select-FromList -Title 'Choose temperature' -Options @('0.1','0.2','0.3','0.5','0.7') -DefaultIndex 1
+        $Temperature = [double]$tempPick
 
+        Show-AsciiDivider 'admin'
         $adminUser = Read-Host "Admin username [admin]"
         if (-not $adminUser) { $adminUser = "admin" }
         $adminPass = Read-Host "Admin password - leave blank for auto-generated"
