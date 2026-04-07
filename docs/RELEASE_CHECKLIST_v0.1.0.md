@@ -32,7 +32,7 @@ Exit criteria:
 ## Phase 2 — Runtime and Dashboard Completeness
 
 - [ ] Add runtime health card (Ollama/tmux/java/server ping)
-- [ ] Add first-run setup/tuning UI for Gemma context size and related local inference settings
+- [x] Add first-run setup/tuning UI for Gemma context size and related local inference settings
 - [ ] Add editable key `server.properties` controls in dashboard
 - [ ] Add OP/whitelist management panel
 - [ ] Add better unauth/error state UX in frontend

@@ -126,6 +126,26 @@ async def api_restart(request: Request):
     return {'ok': True, 'message': ServerService.restart()}
 
 
+@app.get('/api/setup/config')
+async def api_setup_get(request: Request):
+    require_session(request)
+    return ConfigService.load_arx_runtime_config()
+
+
+@app.post('/api/setup/config')
+async def api_setup_set(request: Request):
+    require_session(request)
+    data = await request.json()
+    updates = data.get('updates') or {}
+    if not isinstance(updates, dict):
+        return JSONResponse({'error': 'updates must be object'}, status_code=400)
+    try:
+        clean = ConfigService.validate_runtime_updates(updates)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    cfg = ConfigService.save_arx_runtime_config(clean)
+    return {'ok': True, 'config': cfg}
+
 @app.post('/api/console/send')
 async def api_console_send(request: Request):
     require_session(request)

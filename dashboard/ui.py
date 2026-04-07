@@ -34,11 +34,33 @@ body{font-family:Inter,system-ui,sans-serif;background:#020617;color:#e2e8f0;mar
 button{padding:8px 12px;margin-right:8px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer}
 .ok{color:#86efac}.bad{color:#fca5a5}
 #console-window{background:#000;padding:10px;border-radius:8px;max-height:52vh;overflow:auto;white-space:pre-wrap}
-input{padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;width:70%}
+input,select{padding:8px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
+input{width:70%}
+#setupPanel{display:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
 </style></head><body>
 <div class='card'><h2>ARX Ops Dashboard</h2><div id='status'>Loading...</div>
 <button onclick="act('start')">Start</button><button onclick="act('stop')">Stop</button><button onclick="act('restart')">Restart</button>
 <button onclick='logout()'>Logout</button></div>
+
+<div id='setupPanel' class='card'>
+  <h3>First-run Gemma Setup</h3>
+  <p>Configure local inference/runtime tuning. These values are saved locally.</p>
+  <div class='grid'>
+    <div><label>Trigger</label><br><input id='cfg_trigger' style='width:100%' placeholder='gemma'></div>
+    <div><label>Model</label><br><input id='cfg_model' style='width:100%' placeholder='gemma4:e2b'></div>
+    <div><label>Context Size</label><br><input id='cfg_ctx' style='width:100%' type='number' min='1024' max='131072'></div>
+    <div><label>Temperature</label><br><input id='cfg_temp' style='width:100%' type='number' min='0' max='2' step='0.05'></div>
+    <div><label>Max Reply Chars</label><br><input id='cfg_max_reply' style='width:100%' type='number' min='80' max='500'></div>
+    <div><label>Cooldown Seconds</label><br><input id='cfg_cooldown' style='width:100%' type='number' min='0' max='30' step='0.1'></div>
+  </div>
+  <div style='margin-top:10px'>
+    <button onclick='saveSetup()'>Save Setup</button>
+    <span id='setupMsg'></span>
+  </div>
+</div>
+
 <div class='card'><h3>Console</h3>
   <div><input id='cmd' placeholder='say hello'><button onclick='sendCmd()'>Send</button></div>
   <div id='cmdmsg'></div>
@@ -59,6 +81,49 @@ async function loadState(){
 async function act(a){try{await api('/api/'+a,'POST'); await loadState();}catch(e){cmdmsg.textContent=e.message;}}
 async function sendCmd(){try{const r=await api('/api/console/send','POST',{command:cmd.value}); cmd.value=''; cmdmsg.textContent=r.message;}catch(e){cmdmsg.textContent=e.message;}}
 async function logout(){await api('/api/logout','POST'); location.href='/login';}
+
+async function loadSetup(){
+  try{
+    const cfg = await api('/api/setup/config');
+    cfg_trigger.value = cfg.agent_trigger || 'gemma';
+    cfg_model.value = cfg.gemma_model || 'gemma4:e2b';
+    cfg_ctx.value = cfg.gemma_context_size || 8192;
+    cfg_temp.value = cfg.gemma_temperature || 0.2;
+    cfg_max_reply.value = cfg.gemma_max_reply_chars || 220;
+    cfg_cooldown.value = cfg.gemma_cooldown_sec || 2.5;
+    if(!cfg.setup_completed){
+      setupPanel.style.display='block';
+      setupMsg.textContent='Complete first-run setup to continue.';
+      setupMsg.className='bad';
+    }
+  }catch(e){
+    setupPanel.style.display='block';
+    setupMsg.textContent=e.message;
+    setupMsg.className='bad';
+  }
+}
+
+async function saveSetup(){
+  try{
+    const updates = {
+      agent_trigger: cfg_trigger.value,
+      gemma_model: cfg_model.value,
+      gemma_context_size: Number(cfg_ctx.value),
+      gemma_temperature: Number(cfg_temp.value),
+      gemma_max_reply_chars: Number(cfg_max_reply.value),
+      gemma_cooldown_sec: Number(cfg_cooldown.value),
+      setup_completed: true,
+    };
+    const r = await api('/api/setup/config','POST',{updates});
+    setupMsg.textContent='Saved.';
+    setupMsg.className='ok';
+    setupPanel.style.display='none';
+  }catch(e){
+    setupMsg.textContent=e.message;
+    setupMsg.className='bad';
+  }
+}
+
 async function ws(){
   try{
     const t=await api('/api/ws-ticket');
@@ -79,6 +144,6 @@ async function ws(){
     sock.onclose=()=>setTimeout(ws,2000);
   }catch(_){setTimeout(ws,2000)}
 }
-loadState(); ws();
+loadState(); loadSetup(); ws();
 </script></body></html>
     """

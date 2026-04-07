@@ -17,6 +17,7 @@ from ..config import (
     KNOWN_PLAYERS_PATH,
     OP_ASSIST_STATE_PATH,
 )
+from .config_service import ConfigService
 from .log_service import LogService
 from .server_service import ServerService
 
@@ -33,6 +34,17 @@ class OpAssistService:
 
     _last_seen_by_user: dict[str, float] = {}
     _ctx: dict[str, deque] = {}
+
+    @staticmethod
+    def _runtime_cfg() -> dict:
+        cfg = ConfigService.load_arx_runtime_config()
+        return {
+            'trigger': str(cfg.get('agent_trigger', AGENT_TRIGGER)).strip().lower() or AGENT_TRIGGER,
+            'model': str(cfg.get('gemma_model', GEMMA_OLLAMA_MODEL)).strip() or GEMMA_OLLAMA_MODEL,
+            'temperature': float(cfg.get('gemma_temperature', GEMMA_TEMPERATURE)),
+            'max_reply_chars': int(cfg.get('gemma_max_reply_chars', GEMMA_MAX_REPLY_CHARS)),
+            'cooldown_sec': float(cfg.get('gemma_cooldown_sec', GEMMA_COOLDOWN_SEC)),
+        }
 
     @staticmethod
     def _known_ops() -> set[str]:
@@ -69,8 +81,9 @@ class OpAssistService:
         text = (text or '').strip()
         if not text:
             return
-        if len(text) > GEMMA_MAX_REPLY_CHARS:
-            text = text[: GEMMA_MAX_REPLY_CHARS - 1] + '…'
+        max_reply = OpAssistService._runtime_cfg()['max_reply_chars']
+        if len(text) > max_reply:
+            text = text[: max_reply - 1] + '…'
         ServerService.send_console_command(f'say Gemma: {text}', unsafe_ok=True)
 
     @staticmethod
@@ -82,6 +95,7 @@ class OpAssistService:
         if not GEMMA_ENABLED:
             return {'type': 'chat', 'say': 'Gemma assistant is disabled in local config.'}
 
+        cfg = OpAssistService._runtime_cfg()
         hist = OpAssistService._ctx.setdefault(user.lower(), deque(maxlen=8))
         hist.append({'role': 'user', 'content': msg})
 
@@ -99,9 +113,9 @@ class OpAssistService:
             messages.append({'role': 'user', 'content': f'Observation: {obs}'})
 
         payload = {
-            'model': GEMMA_OLLAMA_MODEL,
+            'model': cfg['model'],
             'messages': messages,
-            'temperature': GEMMA_TEMPERATURE,
+            'temperature': cfg['temperature'],
         }
 
         req = urllib.request.Request(
@@ -124,7 +138,7 @@ class OpAssistService:
                     hist.append({'role': 'assistant', 'content': str(obj.get('say', ''))})
                 return obj
         except (urllib.error.URLError, urllib.error.HTTPError):
-            return {'type': 'chat', 'say': 'Local Ollama is unavailable. Please start/check Ollama and gemma4:e2b.'}
+            return {'type': 'chat', 'say': 'Local Ollama is unavailable. Please start/check Ollama and configured Gemma model.'}
         except Exception:
             return {'type': 'chat', 'say': 'I could not parse model output.'}
         return {'type': 'chat', 'say': 'No valid response.'}
@@ -143,16 +157,17 @@ class OpAssistService:
                     continue
 
                 known_ops = OpAssistService._known_ops()
+                cfg = OpAssistService._runtime_cfg()
                 now = time.time()
 
                 for ev in events:
                     user = ev['user']
                     msg = ev['message']
-                    if AGENT_TRIGGER not in msg.lower():
+                    if cfg['trigger'] not in msg.lower():
                         continue
 
                     last = OpAssistService._last_seen_by_user.get(user.lower(), 0.0)
-                    if now - last < GEMMA_COOLDOWN_SEC:
+                    if now - last < cfg['cooldown_sec']:
                         continue
                     OpAssistService._last_seen_by_user[user.lower()] = now
 
