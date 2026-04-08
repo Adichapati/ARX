@@ -1,4 +1,8 @@
 import asyncio
+import contextlib
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 import urllib.parse
 import urllib.request
 
@@ -33,7 +37,60 @@ from .services.join_watcher_service import JoinWatcherService
 from .services.op_assist_service import OpAssistService
 from .ui import dash_html, login_html, public_html
 
-app = FastAPI(title=APP_NAME)
+logger = logging.getLogger(__name__)
+BACKGROUND_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
+
+
+def _create_background_tasks() -> list[asyncio.Task]:
+    return [
+        asyncio.create_task(refresh_cache_loop()),
+        asyncio.create_task(refresh_logs_loop()),
+        asyncio.create_task(automation_loop()),
+        asyncio.create_task(JoinWatcherService.run_loop(_on_player_join)),
+        asyncio.create_task(OpAssistService.run_loop()),
+    ]
+
+
+async def _cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
+    if not tasks:
+        return
+
+    for task in tasks:
+        task.cancel()
+
+    done, pending = await asyncio.wait(
+        tasks,
+        timeout=BACKGROUND_TASK_CANCEL_TIMEOUT_SECONDS,
+    )
+
+    for task in done:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            task.result()
+
+    if pending:
+        logger.warning(
+            "Timed out waiting for %d background task(s) to cancel",
+            len(pending),
+        )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    from .config import ensure_dirs, load_scheduler
+
+    ensure_dirs()
+    load_scheduler()
+    # default preference: auto-start OFF (manual start only)
+    state['auto_start'] = False
+
+    tasks = _create_background_tasks()
+    try:
+        yield
+    finally:
+        await _cancel_background_tasks(tasks)
+
+
+app = FastAPI(title=APP_NAME, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
@@ -46,13 +103,17 @@ app.add_middleware(
 async def _send_telegram_message(text: str) -> None:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
-    try:
+
+    def _send() -> None:
         qs = urllib.parse.urlencode({'chat_id': TELEGRAM_CHAT_ID, 'text': text})
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?{qs}"
         with urllib.request.urlopen(url, timeout=8) as _r:
             _r.read(64)
+
+    try:
+        await asyncio.to_thread(_send)
     except Exception:
-        pass
+        logger.debug("Failed to send telegram message", exc_info=True)
 
 
 async def _on_player_join(username: str) -> None:
@@ -481,13 +542,14 @@ async def api_plugins_remove(request: Request):
 
 async def refresh_cache_loop():
     import psutil
+
     psutil.cpu_percent(interval=None)
     while True:
         try:
             _cache['snapshot'] = build_snapshot()
             _cache['updated_at'] = now_ts()
         except Exception:
-            pass
+            logger.exception("refresh_cache_loop iteration failed")
         await asyncio.sleep(3)
 
 
@@ -496,7 +558,7 @@ async def refresh_logs_loop():
         try:
             _cache['logs'] = LogService.tail(140)
         except Exception:
-            pass
+            logger.exception("refresh_logs_loop iteration failed")
         await asyncio.sleep(8)
 
 
@@ -548,19 +610,8 @@ async def automation_loop():
 
             first_cycle = False
         except Exception:
-            pass
+            logger.exception("automation_loop iteration failed")
         await asyncio.sleep(15)
 
 
-@app.on_event('startup')
-async def on_startup():
-    from .config import ensure_dirs, load_scheduler
-    ensure_dirs()
-    load_scheduler()
-    # default preference: auto-start OFF (manual start only)
-    state['auto_start'] = False
-    asyncio.create_task(refresh_cache_loop())
-    asyncio.create_task(refresh_logs_loop())
-    asyncio.create_task(automation_loop())
-    asyncio.create_task(JoinWatcherService.run_loop(_on_player_join))
-    asyncio.create_task(OpAssistService.run_loop())
+

@@ -230,25 +230,66 @@ function Require-Command([string]$Name, [string]$Hint) {
     }
 }
 
-function Get-JavaMajorVersion {
-    if (-not (Get-Command java -ErrorAction SilentlyContinue)) { return 0 }
-    try {
-        $vline = (& java -version 2>&1 | Select-Object -First 1)
-        if (-not $vline) { return 0 }
-        $s = [string]$vline
-        if ($s -match 'version "1\.(\d+)') { return [int]$Matches[1] }
-        if ($s -match 'version "(\d+)') { return [int]$Matches[1] }
-        return 0
-    } catch {
-        return 0
+function Get-JavaVersionInfo {
+    $result = @{
+        major = 0
+        firstLine = ''
+        source = ''
     }
+
+    if (-not (Get-Command java -ErrorAction SilentlyContinue)) { return $result }
+
+    try {
+        # Try classic format first: java -version -> openjdk version "21.0.10" ...
+        $vline = (& java -version 2>&1 | Select-Object -First 1)
+        if ($vline) {
+            $s = [string]$vline
+            $result.firstLine = $s
+            $result.source = 'java -version'
+            if ($s -match 'version "1\.(\d+)') { $result.major = [int]$Matches[1]; return $result }
+            if ($s -match 'version "(\d+)') { $result.major = [int]$Matches[1]; return $result }
+        }
+
+        # Fallback for some distributions/shells: java --version -> openjdk 21.0.10 ...
+        $vline2 = (& java --version 2>&1 | Select-Object -First 1)
+        if ($vline2) {
+            $s2 = [string]$vline2
+            $result.firstLine = $s2
+            $result.source = 'java --version'
+            if ($s2 -match '^(?:openjdk|java)\s+(\d+)') { $result.major = [int]$Matches[1]; return $result }
+            if ($s2 -match '\b(\d+)\.\d+') { $result.major = [int]$Matches[1]; return $result }
+        }
+    } catch {
+    }
+
+    return $result
+}
+
+function Get-JavaMajorVersion {
+    return (Get-JavaVersionInfo).major
 }
 
 function Ensure-Java {
     $min = 21
-    $major = Get-JavaMajorVersion
+    $info = Get-JavaVersionInfo
+    $major = [int]$info.major
     if ($major -ge $min) {
-        Write-Host "Java runtime detected (major=$major)." -ForegroundColor DarkGray
+        $src = if ($info.source) { $info.source } else { 'java' }
+        $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
+        Write-Host "Java 21+ detected via $src (major=$major) — skipping install." -ForegroundColor DarkGray
+        Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
+        return
+    }
+
+    # PATH might not be refreshed in current shell; try refreshing once before install.
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $info = Get-JavaVersionInfo
+    $major = [int]$info.major
+    if ($major -ge $min) {
+        $src = if ($info.source) { $info.source } else { 'java' }
+        $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
+        Write-Host "Java 21+ detected via $src after PATH refresh (major=$major) — skipping install." -ForegroundColor DarkGray
+        Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
         return
     }
 
@@ -265,7 +306,16 @@ function Ensure-Java {
     foreach ($pkg in $packages) {
         try {
             & winget install --id $pkg -e --accept-package-agreements --accept-source-agreements --silent
-            if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+            # winget may return 0 for "already installed" or successful install.
+            if ($LASTEXITCODE -eq 0) {
+                $installed = $true
+                $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+                $major = Get-JavaMajorVersion
+                if ($major -ge $min) {
+                    Write-Host "Java runtime ready (major=$major)." -ForegroundColor DarkGray
+                    return
+                }
+            }
         } catch {
         }
     }
@@ -274,11 +324,7 @@ function Ensure-Java {
         throw 'Could not install Java automatically. Install Java 21+ manually and rerun installer.'
     }
 
-    $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    $major = Get-JavaMajorVersion
-    if ($major -lt $min) {
-        throw "Java install completed but detected runtime is still below $min. Open a new shell or install Java 21+ manually."
-    }
+    throw "Java package operation completed but runtime detection is still below $min in this shell. Open a new terminal and rerun installer."
 }
 
 function Ensure-Ollama([string]$ModelName) {
