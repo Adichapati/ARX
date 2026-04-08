@@ -235,23 +235,50 @@ function Get-JavaVersionInfo {
         major = 0
         firstLine = ''
         source = ''
+        path = ''
     }
 
-    if (-not (Get-Command java -ErrorAction SilentlyContinue)) { return $result }
+    # Resolve java command location explicitly (handles stale PATH edge-cases).
+    $javaCmd = Get-Command java -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $javaCmd) {
+        $possible = @(
+            "$env:ProgramFiles\Java",
+            "$env:ProgramFiles\Eclipse Adoptium",
+            "$env:ProgramFiles\Microsoft",
+            "$env:ProgramFiles\Amazon Corretto",
+            "$env:ProgramFiles(x86)\Java"
+        )
+        foreach ($root in $possible) {
+            if (-not (Test-Path $root)) { continue }
+            $found = Get-ChildItem -Path $root -Recurse -Filter java.exe -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\bin\\java\.exe$' } |
+                Select-Object -First 1
+            if ($found) {
+                $javaCmd = $found.FullName
+                break
+            }
+        }
+    }
+
+    if (-not $javaCmd) { return $result }
+
+    $javaPath = if ($javaCmd -is [string]) { $javaCmd } else { $javaCmd.Source }
+    $result.path = [string]$javaPath
 
     try {
         # Try classic format first: java -version -> openjdk version "21.0.10" ...
-        $vline = (& java -version 2>&1 | Select-Object -First 1)
+        $vline = (& $javaPath -version 2>&1 | Select-Object -First 1)
         if ($vline) {
             $s = [string]$vline
             $result.firstLine = $s
             $result.source = 'java -version'
             if ($s -match 'version "1\.(\d+)') { $result.major = [int]$Matches[1]; return $result }
             if ($s -match 'version "(\d+)') { $result.major = [int]$Matches[1]; return $result }
+            if ($s -match '^(?:openjdk|java)\s+(\d+)') { $result.major = [int]$Matches[1]; return $result }
         }
 
         # Fallback for some distributions/shells: java --version -> openjdk 21.0.10 ...
-        $vline2 = (& java --version 2>&1 | Select-Object -First 1)
+        $vline2 = (& $javaPath --version 2>&1 | Select-Object -First 1)
         if ($vline2) {
             $s2 = [string]$vline2
             $result.firstLine = $s2
@@ -276,8 +303,10 @@ function Ensure-Java {
     if ($major -ge $min) {
         $src = if ($info.source) { $info.source } else { 'java' }
         $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
+        $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
         Write-Host "Java 21+ detected via $src (major=$major) — skipping install." -ForegroundColor DarkGray
         Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
+        Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
         return
     }
 
@@ -288,8 +317,10 @@ function Ensure-Java {
     if ($major -ge $min) {
         $src = if ($info.source) { $info.source } else { 'java' }
         $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
+        $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
         Write-Host "Java 21+ detected via $src after PATH refresh (major=$major) — skipping install." -ForegroundColor DarkGray
         Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
+        Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
         return
     }
 
