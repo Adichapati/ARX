@@ -31,7 +31,11 @@ def main() -> int:
     bind_host = args.bind_host or os.environ.get('ARX_BIND_HOST', '0.0.0.0')
     bind_port = args.bind_port or os.environ.get('ARX_BIND_PORT', '18890')
     admin_user = args.admin_user or os.environ.get('ARX_ADMIN_USER', 'admin')
-    admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '') or secrets.token_urlsafe(10)
+    admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '')
+    if not admin_pass:
+        raise SystemExit('Admin password is required. Set ARX_ADMIN_PASS or pass --admin-pass.')
+    if len(admin_pass) < 8:
+        raise SystemExit('Admin password must be at least 8 characters.')
     trigger = args.trigger or os.environ.get('ARX_TRIGGER', 'gemma')
     model = args.model or os.environ.get('ARX_MODEL', 'gemma4:e2b')
     ollama_url = args.ollama_url or os.environ.get('ARX_OLLAMA_URL', 'http://localhost:11434/v1/chat/completions')
@@ -72,8 +76,8 @@ RCON_PASSWORD=arx-local-rcon
 
     print('Generated .env')
     print(f'Admin username: {admin_user}')
-    print(f'Temporary admin password: {admin_pass}')
-    print('Change credentials after first login.')
+    print('Admin password: (provided by installer input)')
+    print('Keep this password safe. Change credentials after first login.')
     return 0
 
 

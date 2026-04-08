@@ -14,6 +14,8 @@ GEMMA_TEMPERATURE=""
 MC_VERSION=""
 PLAYIT_ENABLED=""
 PLAYIT_URL=""
+ADMIN_USER=""
+ADMIN_PASS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,9 +29,11 @@ while [[ $# -gt 0 ]]; do
     --mc-version) MC_VERSION="${2:-}"; shift 2 ;;
     --playit-enabled) PLAYIT_ENABLED="${2:-}"; shift 2 ;;
     --playit-url) PLAYIT_URL="${2:-}"; shift 2 ;;
+    --admin-user) ADMIN_USER="${2:-}"; shift 2 ;;
+    --admin-pass) ADMIN_PASS="${2:-}"; shift 2 ;;
     *)
       echo "Unknown flag: $1"
-      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 4096] [--temperature 0.2] [--mc-version 1.20.4] [--playit-enabled true|false] [--playit-url <public-tunnel>]"
+      echo "Usage: ./install.sh [--yes] [--force-env] [--port 18890] [--trigger gemma] [--model gemma4:e2b] [--context-size 4096] [--temperature 0.2] [--mc-version 1.20.4] [--playit-enabled true|false] [--playit-url <public-tunnel>] [--admin-user admin] [--admin-pass <password>]"
       exit 1
       ;;
   esac
@@ -538,19 +542,20 @@ prompt_if_needed() {
     PLAYIT_URL="${_pu:-}"
   fi
 
-  ADMIN_USER="admin"
-  ADMIN_PASS=""
-  if [[ "$YES_MODE" == false ]]; then
-    _u="$(prompt_with_art "Admin Account" "admin" "Admin username [admin]: ")"
-    ADMIN_USER="${_u:-admin}"
-    if [[ "$UI_ENABLED" == true ]]; then
-      banner
-      box "Admin Account"
-      ascii_divider "admin"
+  if [[ -z "$ADMIN_USER" ]]; then
+    ADMIN_USER="admin"
+    if [[ "$YES_MODE" == false ]]; then
+      _u="$(prompt_with_art "Admin Account" "admin" "Admin username [admin]: ")"
+      ADMIN_USER="${_u:-admin}"
     fi
-    read -rsp "Admin password - leave blank to auto-generate: " _pw
-    echo
-    ADMIN_PASS="${_pw:-}"
+  fi
+
+  # Password is always explicit now (no hidden auto-generated fallback prompt).
+  if [[ -z "$ADMIN_PASS" ]]; then
+    if [[ "$YES_MODE" == false ]]; then
+      _pw="$(prompt_with_art "Admin Account" "admin" "Admin password (required, min 8 chars): ")"
+      ADMIN_PASS="${_pw:-}"
+    fi
   fi
 
   export ARX_ADMIN_USER="$ADMIN_USER"
@@ -568,6 +573,8 @@ validate_inputs() {
   if [[ "$GEMMA_MODEL" != *:* ]]; then err "Model should look like 'name:tag' (e.g., gemma4:e2b). Got: $GEMMA_MODEL"; exit 1; fi
 
   if ! [[ "$ARX_ADMIN_USER" =~ ^[a-zA-Z0-9_.-]{3,32}$ ]]; then err "Admin username must match [a-zA-Z0-9_.-]{3,32}. Got: $ARX_ADMIN_USER"; exit 1; fi
+  if [[ -z "$ARX_ADMIN_PASS" ]]; then err "Admin password is required. Provide one during setup or pass --admin-pass."; exit 1; fi
+  if (( ${#ARX_ADMIN_PASS} < 8 )); then err "Admin password must be at least 8 characters."; exit 1; fi
 
   if ! [[ "$GEMMA_CONTEXT_SIZE" =~ ^[0-9]+$ ]]; then err "Context size must be numeric."; exit 1; fi
   if (( GEMMA_CONTEXT_SIZE < 1024 || GEMMA_CONTEXT_SIZE > 32768 )); then err "Context size must be 1024..32768."; exit 1; fi

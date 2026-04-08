@@ -8,7 +8,9 @@ param(
     [double]$Temperature = 0.2,
     [string]$McVersion = '1.20.4',
     [bool]$PlayitEnabled = $false,
-    [string]$PlayitUrl = ''
+    [string]$PlayitUrl = '',
+    [string]$AdminUser = '',
+    [string]$AdminPass = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -521,6 +523,9 @@ function Validate-Inputs {
     if ($ContextSize -lt 1024 -or $ContextSize -gt 32768) { throw 'Context size must be between 1024 and 32768.' }
     if ($Temperature -lt 0 -or $Temperature -gt 2) { throw 'Temperature must be between 0 and 2.' }
     if ($McVersion -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw 'Minecraft version must look like 1.20.4.' }
+    if ($AdminUser -notmatch '^[a-zA-Z0-9_.-]{3,32}$') { throw 'Admin username must match [a-zA-Z0-9_.-]{3,32}.' }
+    if ([string]::IsNullOrWhiteSpace($AdminPass)) { throw 'Admin password is required.' }
+    if ($AdminPass.Length -lt 8) { throw 'Admin password must be at least 8 characters.' }
 }
 
 function Ensure-Playit {
@@ -591,12 +596,15 @@ try {
             $PlayitUrl = Prompt-TextWithArt -Title 'Playit URL' -ArtTag 'default' -PromptText 'Optional existing Playit public URL (leave blank to set up later)'
         }
 
-        $adminUser = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin username [admin]'
-        if (-not $adminUser) { $adminUser = 'admin' }
-        $adminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password - leave blank for auto-generated'
+        if ([string]::IsNullOrWhiteSpace($AdminUser)) {
+            $AdminUser = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin username [admin]'
+            if ([string]::IsNullOrWhiteSpace($AdminUser)) { $AdminUser = 'admin' }
+        }
+        if ([string]::IsNullOrWhiteSpace($AdminPass)) {
+            $AdminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password (required, min 8 chars)'
+        }
     } else {
-        $adminUser = 'admin'
-        $adminPass = ''
+        if ([string]::IsNullOrWhiteSpace($AdminUser)) { $AdminUser = 'admin' }
     }
 
     # Context is fixed by default for setup stability.
@@ -614,7 +622,7 @@ try {
     Write-Host "  Minecraft ver    : $McVersion" -ForegroundColor Cyan
     Write-Host "  Playit enabled   : $PlayitEnabled" -ForegroundColor Cyan
     if ($PlayitUrl) { Write-Host "  Playit URL       : $PlayitUrl" -ForegroundColor Cyan }
-    Write-Host "  Admin user       : $adminUser" -ForegroundColor Cyan
+    Write-Host "  Admin user       : $AdminUser" -ForegroundColor Cyan
 
     Show-Transition 'Running installation pipeline'
 
@@ -660,8 +668,8 @@ try {
         } else {
             $env:ARX_BIND_HOST = '0.0.0.0'
             $env:ARX_BIND_PORT = "$Port"
-            $env:ARX_ADMIN_USER = "$adminUser"
-            $env:ARX_ADMIN_PASS = "$adminPass"
+            $env:ARX_ADMIN_USER = "$AdminUser"
+            $env:ARX_ADMIN_PASS = "$AdminPass"
             $env:ARX_TRIGGER = "$Trigger"
             $env:ARX_MODEL = "$Model"
             $env:ARX_CONTEXT_SIZE = "$ContextSize"
