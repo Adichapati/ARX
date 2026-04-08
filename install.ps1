@@ -230,6 +230,11 @@ function Require-Command([string]$Name, [string]$Hint) {
     }
 }
 
+function Test-JavaRuntime([int]$Min = 21) {
+    $info = Get-JavaVersionInfo
+    return ([int]$info.major -ge $Min)
+}
+
 function Get-JavaVersionInfo {
     $result = @{
         major = 0
@@ -415,28 +420,59 @@ function Ensure-Java {
     )
 
     $installed = $false
+    $wingetIndicatesPresent = $false
+
     foreach ($pkg in $packages) {
+        $wingetOutput = @()
+        $code = 1
         try {
-            & winget install --id $pkg -e --accept-package-agreements --accept-source-agreements --silent
-            # winget may return 0 for "already installed" or successful install.
-            if ($LASTEXITCODE -eq 0) {
-                $installed = $true
-                $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-                $major = Get-JavaMajorVersion
-                if ($major -ge $min) {
-                    Write-Host "Java runtime ready (major=$major)." -ForegroundColor DarkGray
-                    return
-                }
-            }
+            $wingetOutput = (& winget install --id $pkg -e --accept-package-agreements --accept-source-agreements --silent 2>&1 | ForEach-Object { [string]$_ })
+            $code = $LASTEXITCODE
         } catch {
+            $wingetOutput += $_.Exception.Message
+            $code = 1
+        }
+
+        $text = ($wingetOutput -join "`n")
+        if ($text -match 'Successfully installed' -or
+            $text -match 'Found an existing package already installed' -or
+            $text -match 'No newer package versions are available') {
+            $wingetIndicatesPresent = $true
+        }
+
+        if ($code -eq 0) {
+            $installed = $true
+        }
+
+        $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+        $info = Get-JavaVersionInfo
+        $major = [int]$info.major
+        if ($major -ge $min) {
+            $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
+            Write-Host "Java runtime ready (major=$major)." -ForegroundColor DarkGray
+            Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
+            return
         }
     }
 
-    if (-not $installed) {
-        throw 'Could not install Java automatically. Install Java 21+ manually and rerun installer.'
+    # Final check after attempting all package IDs.
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $info = Get-JavaVersionInfo
+    $major = [int]$info.major
+    if ($major -ge $min) {
+        $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
+        Write-Host "Java runtime ready (major=$major)." -ForegroundColor DarkGray
+        Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
+        return
     }
 
-    throw "Java package operation completed but runtime detection is still below $min in this shell. Open a new terminal and rerun installer."
+    if ($wingetIndicatesPresent -or $installed) {
+        Write-Host "Java 21 package appears installed but version probe failed in this shell." -ForegroundColor Yellow
+        Write-Host "Continuing setup. If server start later reports old Java, open a new terminal and rerun installer." -ForegroundColor Yellow
+        return
+    }
+
+    throw 'Could not install Java automatically. Install Java 21+ manually and rerun installer.'
 }
 
 function Ensure-Ollama([string]$ModelName) {
