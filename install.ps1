@@ -238,55 +238,136 @@ function Get-JavaVersionInfo {
         path = ''
     }
 
-    # Resolve java command location explicitly (handles stale PATH edge-cases).
-    $javaCmd = Get-Command java -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $javaCmd) {
-        $possible = @(
-            "$env:ProgramFiles\Java",
-            "$env:ProgramFiles\Eclipse Adoptium",
-            "$env:ProgramFiles\Microsoft",
-            "$env:ProgramFiles\Amazon Corretto",
-            "$env:ProgramFiles(x86)\Java"
-        )
-        foreach ($root in $possible) {
-            if (-not (Test-Path $root)) { continue }
-            $found = Get-ChildItem -Path $root -Recurse -Filter java.exe -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match '\\bin\\java\.exe$' } |
-                Select-Object -First 1
-            if ($found) {
-                $javaCmd = $found.FullName
-                break
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+
+    # 1) Commands from current PATH (collect all, not just first)
+    try {
+        $cmds = Get-Command java -All -ErrorAction SilentlyContinue
+        foreach ($cmd in $cmds) {
+            $src = if ($cmd.Source) { $cmd.Source } elseif ($cmd.Path) { $cmd.Path } else { '' }
+            if ($src) { [void]$candidates.Add([string]$src) }
+        }
+    } catch {
+    }
+
+    # 2) JAVA_HOME
+    if ($env:JAVA_HOME) {
+        $jh = Join-Path $env:JAVA_HOME 'bin\java.exe'
+        if (Test-Path $jh) { [void]$candidates.Add($jh) }
+    }
+
+    # 3) Registry-discovered Java homes
+    $regRoots = @(
+        'HKLM:\SOFTWARE\JavaSoft\JDK',
+        'HKLM:\SOFTWARE\JavaSoft\JRE',
+        'HKLM:\SOFTWARE\WOW6432Node\JavaSoft\JDK',
+        'HKLM:\SOFTWARE\WOW6432Node\JavaSoft\JRE',
+        'HKLM:\SOFTWARE\Eclipse Adoptium\JDK',
+        'HKLM:\SOFTWARE\Eclipse Adoptium\JRE',
+        'HKLM:\SOFTWARE\Microsoft\JDK'
+    )
+    foreach ($root in $regRoots) {
+        if (-not (Test-Path $root)) { continue }
+
+        try {
+            $cv = (Get-ItemProperty -Path $root -ErrorAction SilentlyContinue).CurrentVersion
+            if ($cv) {
+                $cvPath = Join-Path $root $cv
+                $home = (Get-ItemProperty -Path $cvPath -ErrorAction SilentlyContinue).JavaHome
+                if ($home) {
+                    $jp = Join-Path $home 'bin\java.exe'
+                    if (Test-Path $jp) { [void]$candidates.Add($jp) }
+                }
             }
+        } catch {
+        }
+
+        try {
+            $subs = Get-ChildItem -Path $root -ErrorAction SilentlyContinue
+            foreach ($sub in $subs) {
+                $home = (Get-ItemProperty -Path $sub.PSPath -ErrorAction SilentlyContinue).JavaHome
+                if ($home) {
+                    $jp = Join-Path $home 'bin\java.exe'
+                    if (Test-Path $jp) { [void]$candidates.Add($jp) }
+                }
+            }
+        } catch {
         }
     }
 
-    if (-not $javaCmd) { return $result }
+    # 4) Common install roots
+    $possible = @(
+        "$env:ProgramFiles\Java",
+        "$env:ProgramFiles\Eclipse Adoptium",
+        "$env:ProgramFiles\Microsoft",
+        "$env:ProgramFiles\Amazon Corretto",
+        "${env:ProgramFiles(x86)}\Java",
+        "${env:ProgramFiles(x86)}\Eclipse Adoptium"
+    )
+    foreach ($root in $possible) {
+        if (-not $root -or -not (Test-Path $root)) { continue }
+        try {
+            $found = Get-ChildItem -Path $root -Recurse -Filter java.exe -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\bin\\java\.exe$' }
+            foreach ($item in $found) {
+                [void]$candidates.Add($item.FullName)
+            }
+        } catch {
+        }
+    }
 
-    $javaPath = if ($javaCmd -is [string]) { $javaCmd } else { $javaCmd.Source }
-    $result.path = [string]$javaPath
+    # Deduplicate + verify existence
+    $seen = @{}
+    $unique = @()
+    foreach ($p in $candidates) {
+        if (-not $p) { continue }
+        try {
+            if (-not (Test-Path $p)) { continue }
+            $full = [System.IO.Path]::GetFullPath($p)
+            $key = $full.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                $unique += $full
+            }
+        } catch {
+        }
+    }
 
-    try {
-        # Try classic format first: java -version -> openjdk version "21.0.10" ...
-        $vline = (& $javaPath -version 2>&1 | Select-Object -First 1)
-        if ($vline) {
-            $s = [string]$vline
-            $result.firstLine = $s
-            $result.source = 'java -version'
-            if ($s -match 'version "1\.(\d+)') { $result.major = [int]$Matches[1]; return $result }
-            if ($s -match 'version "(\d+)') { $result.major = [int]$Matches[1]; return $result }
-            if ($s -match '^(?:openjdk|java)\s+(\d+)') { $result.major = [int]$Matches[1]; return $result }
+    foreach ($javaPath in $unique) {
+        $major = 0
+        $line = ''
+        $src = ''
+
+        try {
+            $vline = (& $javaPath -version 2>&1 | Select-Object -First 1)
+            if ($vline) {
+                $s = [string]$vline
+                $line = $s
+                $src = 'java -version'
+                if ($s -match 'version "1\.(\d+)') { $major = [int]$Matches[1] }
+                elseif ($s -match 'version "(\d+)') { $major = [int]$Matches[1] }
+                elseif ($s -match '^(?:openjdk|java)\s+(\d+)') { $major = [int]$Matches[1] }
+            }
+
+            if ($major -eq 0) {
+                $vline2 = (& $javaPath --version 2>&1 | Select-Object -First 1)
+                if ($vline2) {
+                    $s2 = [string]$vline2
+                    $line = $s2
+                    $src = 'java --version'
+                    if ($s2 -match '^(?:openjdk|java)\s+(\d+)') { $major = [int]$Matches[1] }
+                    elseif ($s2 -match '\b(\d+)\.\d+') { $major = [int]$Matches[1] }
+                }
+            }
+        } catch {
         }
 
-        # Fallback for some distributions/shells: java --version -> openjdk 21.0.10 ...
-        $vline2 = (& $javaPath --version 2>&1 | Select-Object -First 1)
-        if ($vline2) {
-            $s2 = [string]$vline2
-            $result.firstLine = $s2
-            $result.source = 'java --version'
-            if ($s2 -match '^(?:openjdk|java)\s+(\d+)') { $result.major = [int]$Matches[1]; return $result }
-            if ($s2 -match '\b(\d+)\.\d+') { $result.major = [int]$Matches[1]; return $result }
+        if ($major -gt [int]$result.major) {
+            $result.major = $major
+            $result.firstLine = $line
+            $result.source = $src
+            $result.path = $javaPath
         }
-    } catch {
     }
 
     return $result
