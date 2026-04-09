@@ -14,7 +14,60 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Set-Location -Path $PSScriptRoot
+
+$BootstrapZipUrl = if ([string]::IsNullOrWhiteSpace($env:ARX_BOOTSTRAP_ZIP_URL)) { 'https://arxmc.studio/arx-runtime.zip' } else { $env:ARX_BOOTSTRAP_ZIP_URL }
+$BootstrapInstallDir = if ([string]::IsNullOrWhiteSpace($env:ARX_INSTALL_DIR)) { Join-Path $env:USERPROFILE 'ARX' } else { $env:ARX_INSTALL_DIR }
+$ScriptDir = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) { (Get-Location).Path } else { $PSScriptRoot }
+if (-not (Test-Path $ScriptDir)) { $ScriptDir = (Get-Location).Path }
+
+function Test-ProjectRoot([string]$BaseDir) {
+    return (Test-Path (Join-Path $BaseDir 'requirements.txt')) -and
+           (Test-Path (Join-Path $BaseDir 'scripts\generate_env.py')) -and
+           (Test-Path (Join-Path $BaseDir 'install.ps1'))
+}
+
+if (-not (Test-ProjectRoot $ScriptDir)) {
+    Write-Host "[ARX] Bootstrap mode detected. Downloading runtime bundle..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $BootstrapInstallDir | Out-Null
+
+    $zipPath = Join-Path ([System.IO.Path]::GetTempPath()) ("arx-runtime-{0}.zip" -f ([Guid]::NewGuid().ToString('N')))
+    try {
+        Invoke-WebRequest -Uri $BootstrapZipUrl -OutFile $zipPath
+        Expand-Archive -Path $zipPath -DestinationPath $BootstrapInstallDir -Force
+    }
+    finally {
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    }
+
+    $reentry = Join-Path $BootstrapInstallDir 'install.ps1'
+    if (-not (Test-Path $reentry)) {
+        $nested = Get-ChildItem -Path $BootstrapInstallDir -Filter install.ps1 -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nested) { $reentry = $nested.FullName }
+    }
+    if (-not (Test-Path $reentry)) {
+        throw "Bootstrap failed: install.ps1 not found after extracting $BootstrapZipUrl"
+    }
+
+    Write-Host "[ARX] Re-launching installer from $reentry" -ForegroundColor Cyan
+    $reentryArgs = @{
+        Yes = $Yes
+        ForceEnv = $ForceEnv
+        Port = $Port
+        Trigger = $Trigger
+        Model = $Model
+        ContextSize = $ContextSize
+        Temperature = $Temperature
+        McVersion = $McVersion
+        PlayitEnabled = $PlayitEnabled
+        PlayitUrl = $PlayitUrl
+        AdminUser = $AdminUser
+        AdminPass = $AdminPass
+    }
+    & $reentry @reentryArgs
+    exit $LASTEXITCODE
+}
+
+Set-Location -Path $ScriptDir
 
 function Test-InteractiveConsole {
     try {
@@ -505,7 +558,7 @@ function Ensure-Ollama([string]$ModelName) {
 }
 
 function Download-ServerJar {
-    $jarPath = Join-Path $PSScriptRoot 'app/minecraft_server/server.jar'
+    $jarPath = Join-Path $ScriptDir 'app/minecraft_server/server.jar'
     if (Test-Path $jarPath) { return }
 
     $manifest = Invoke-RestMethod 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
@@ -546,8 +599,8 @@ function Install-ArxLauncher {
         New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
     }
 
-    $pythonPath = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    $cliPath = Join-Path $PSScriptRoot 'scripts\arx_cli.py'
+    $pythonPath = Join-Path $ScriptDir '.venv\Scripts\python.exe'
+    $cliPath = Join-Path $ScriptDir 'scripts\arx_cli.py'
     if (-not (Test-Path $pythonPath)) { throw '.venv\Scripts\python.exe not found.' }
     if (-not (Test-Path $cliPath)) { throw 'scripts\arx_cli.py not found.' }
 
