@@ -79,7 +79,7 @@ def _set_runtime_context_in_state(tokens: int) -> None:
 
 
 def bind_host() -> str:
-    return cfg('BIND_HOST', '0.0.0.0')
+    return cfg('BIND_HOST', '127.0.0.1')
 
 
 def bind_port() -> int:

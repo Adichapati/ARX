@@ -8,6 +8,7 @@ from ..config import (
     BIND_PORT,
     MC_PORT,
     PLAYIT_URL,
+    PUBLIC_READ_ENABLED,
     PUBLIC_READ_TOKEN,
     _cache,
     _metrics_hist,
@@ -81,7 +82,10 @@ def build_snapshot() -> dict:
         'dashboard': {
             'bind': f'{BIND_HOST}:{BIND_PORT}',
             'private_link': f'http://{ip}:{BIND_PORT}/',
-            'public_readonly_link': f'http://{ip}:{BIND_PORT}/public/{PUBLIC_READ_TOKEN}',
+            'public_readonly_link': (
+                f'http://{ip}:{BIND_PORT}/public/{PUBLIC_READ_TOKEN}' if PUBLIC_READ_ENABLED else ''
+            ),
+            'public_read_enabled': bool(PUBLIC_READ_ENABLED),
         },
         'metrics': {
             'cpu_percent': round(cpu, 1),

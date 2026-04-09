@@ -16,7 +16,7 @@ def hash_pw(password: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description='Generate ARX .env file')
     parser.add_argument('--output', default='.env')
-    parser.add_argument('--bind-host', default='0.0.0.0')
+    parser.add_argument('--bind-host', default='127.0.0.1')
     parser.add_argument('--bind-port', default='18890')
     parser.add_argument('--admin-user', default='')
     parser.add_argument('--admin-pass', default='')
@@ -28,7 +28,7 @@ def main() -> int:
     args = parser.parse_args()
 
     import os
-    bind_host = args.bind_host or os.environ.get('ARX_BIND_HOST', '0.0.0.0')
+    bind_host = args.bind_host or os.environ.get('ARX_BIND_HOST', '127.0.0.1')
     bind_port = args.bind_port or os.environ.get('ARX_BIND_PORT', '18890')
     admin_user = args.admin_user or os.environ.get('ARX_ADMIN_USER', 'admin')
     admin_pass = args.admin_pass or os.environ.get('ARX_ADMIN_PASS', '')
@@ -51,6 +51,9 @@ AUTH_PASSWORD_HASH={hash_pw(admin_pass)}
 SESSION_SECRET={secrets.token_urlsafe(32)}
 PUBLIC_READ_ENABLED=false
 PUBLIC_READ_TOKEN={secrets.token_urlsafe(24)}
+SESSION_COOKIE_SECURE=false
+SESSION_COOKIE_SAMESITE=lax
+CSRF_ENABLED=true
 MC_HOST=127.0.0.1
 MC_PORT=25565
 MC_TMUX_SESSION=mc_server_arx
@@ -68,7 +71,7 @@ PLAYIT_ENABLED={playit_enabled}
 PLAYIT_URL={playit_url}
 RCON_HOST=127.0.0.1
 RCON_PORT=25575
-RCON_PASSWORD=arx-local-rcon
+RCON_PASSWORD={secrets.token_urlsafe(24)}
 """
 
     out = Path(args.output)

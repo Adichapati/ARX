@@ -34,7 +34,8 @@ def _zip_with_symlink(link_name: str, target: str) -> bytes:
 
 class _FakeRequest:
     def __init__(self, payload: dict | None = None):
-        self.session = {"user": "tester"}
+        self.session = {"user": "tester", "csrf_token": "test-csrf-token"}
+        self.headers = {"x-csrf-token": "test-csrf-token"}
         self._payload = payload or {}
 
     async def json(self):

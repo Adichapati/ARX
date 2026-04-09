@@ -867,7 +867,7 @@ try {
         if ((Test-Path .env) -and (-not $ForceEnv)) {
             Write-Host '.env already exists. Keeping current values. Use --force-env to regenerate.' -ForegroundColor Yellow
         } else {
-            $env:ARX_BIND_HOST = '0.0.0.0'
+            $env:ARX_BIND_HOST = '127.0.0.1'
             $env:ARX_BIND_PORT = "$Port"
             $env:ARX_ADMIN_USER = "$AdminUser"
             $env:ARX_ADMIN_PASS = "$AdminPass"

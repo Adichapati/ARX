@@ -13,7 +13,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from .auth import check_login, client_key, is_locked, prune_attempts, register_failed_attempt, require_session
 from .config import (
     APP_NAME,
+    CSRF_ENABLED,
+    PUBLIC_READ_ENABLED,
     PUBLIC_READ_TOKEN,
+    SESSION_COOKIE_SAMESITE,
+    SESSION_COOKIE_SECURE,
     SESSION_SECRET,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
@@ -22,6 +26,7 @@ from .config import (
     _console_policy,
     _scheduler,
     _ws_tickets,
+    load_lockouts,
     now_ts,
     save_scheduler,
     state,
@@ -80,6 +85,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     ensure_dirs()
     load_scheduler()
+    load_lockouts()
     # default preference: auto-start OFF (manual start only)
     state['auto_start'] = False
 
@@ -95,8 +101,8 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     max_age=60 * 60 * 12,
-    same_site='lax',
-    https_only=False,
+    same_site=SESSION_COOKIE_SAMESITE,
+    https_only=SESSION_COOKIE_SECURE,
 )
 
 
@@ -118,6 +124,21 @@ async def _send_telegram_message(text: str) -> None:
 
 async def _on_player_join(username: str) -> None:
     await _send_telegram_message(f"{username} joined mc server")
+
+
+def _require_csrf(request: Request) -> None:
+    if not CSRF_ENABLED:
+        return
+    token_session = str(request.session.get('csrf_token', '') or '')
+    headers = getattr(request, 'headers', None)
+    token_header = ''
+    if headers is not None:
+        try:
+            token_header = str(headers.get('x-csrf-token', '') or '')
+        except Exception:
+            token_header = ''
+    if not token_session or not token_header or token_session != token_header:
+        raise HTTPException(status_code=403, detail='CSRF token missing or invalid')
 
 
 @app.get('/login', response_class=HTMLResponse)
@@ -145,11 +166,14 @@ async def api_login(request: Request):
 
     request.session['user'] = username
     request.session['login_at'] = int(now)
+    request.session['csrf_token'] = __import__('secrets').token_urlsafe(24)
     return {'ok': True}
 
 
 @app.post('/api/logout')
 async def api_logout(request: Request):
+    require_session(request)
+    _require_csrf(request)
     request.session.clear()
     return {'ok': True}
 
@@ -163,6 +187,8 @@ async def home(request: Request):
 
 @app.get('/public/{token}', response_class=HTMLResponse)
 async def public_page(token: str):
+    if not PUBLIC_READ_ENABLED:
+        raise HTTPException(status_code=404, detail='Not found')
     if token != PUBLIC_READ_TOKEN:
         raise HTTPException(status_code=404, detail='Not found')
     return public_html()
@@ -176,6 +202,8 @@ async def api_state(request: Request):
 
 @app.get('/api/public/state/{token}')
 async def api_public_state(token: str):
+    if not PUBLIC_READ_ENABLED:
+        return JSONResponse({'error': 'forbidden'}, status_code=403)
     if token != PUBLIC_READ_TOKEN:
         return JSONResponse({'error': 'forbidden'}, status_code=403)
     s = get_snapshot()
@@ -189,24 +217,28 @@ async def api_public_state(token: str):
 @app.post('/api/start')
 async def api_start(request: Request):
     require_session(request)
+    _require_csrf(request)
     return {'ok': True, 'message': ServerService.start()}
 
 
 @app.post('/api/stop')
 async def api_stop(request: Request):
     require_session(request)
+    _require_csrf(request)
     return {'ok': True, 'message': ServerService.stop()}
 
 
 @app.post('/api/restart')
 async def api_restart(request: Request):
     require_session(request)
+    _require_csrf(request)
     return {'ok': True, 'message': ServerService.restart()}
 
 
 @app.post('/api/toggle/{name}')
 async def api_toggle(name: str, request: Request):
     require_session(request)
+    _require_csrf(request)
     if name not in ('auto_start', 'auto_stop'):
         return JSONResponse({'ok': False, 'error': 'unknown toggle'}, status_code=400)
     state[name] = not bool(state[name])
@@ -221,6 +253,16 @@ async def api_ws_ticket(request: Request):
     ticket = __import__('secrets').token_urlsafe(24)
     _ws_tickets[ticket] = now_ts() + 30
     return {'ticket': ticket}
+
+
+@app.get('/api/csrf')
+async def api_csrf(request: Request):
+    require_session(request)
+    token = str(request.session.get('csrf_token', '') or '')
+    if not token:
+        token = __import__('secrets').token_urlsafe(24)
+        request.session['csrf_token'] = token
+    return {'csrf_token': token, 'enabled': CSRF_ENABLED}
 
 
 @app.websocket('/ws')
@@ -252,6 +294,7 @@ async def ws_feed(ws: WebSocket):
 @app.post('/api/console/send')
 async def api_console_send(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     command = str(data.get('command', '')).strip()
     tier = str(data.get('tier', _console_policy.get('tier', 'safe'))).strip().lower()
@@ -288,6 +331,7 @@ async def api_players_state(request: Request):
 @app.post('/api/players/action')
 async def api_players_action(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     action = str(data.get('action', '')).strip()
     name = str(data.get('name', '')).strip()
@@ -320,6 +364,7 @@ async def api_players_action(request: Request):
 @app.post('/api/players/whitelist/toggle')
 async def api_whitelist_toggle(request: Request):
     require_session(request)
+    _require_csrf(request)
     props = PropertiesService.read_all()
     enabled = props.get('white-list', 'false').lower() == 'true'
     new_val = 'false' if enabled else 'true'
@@ -342,6 +387,7 @@ async def api_properties(request: Request):
 @app.post('/api/properties')
 async def api_properties_save(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     updates = data.get('updates') or {}
     if not isinstance(updates, dict):
@@ -367,12 +413,14 @@ async def api_seed(request: Request):
 @app.post('/api/seed/generate')
 async def api_seed_generate(request: Request):
     require_session(request)
+    _require_csrf(request)
     return {'seed': SeedService.random_seed()}
 
 
 @app.post('/api/seed/apply')
 async def api_seed_apply(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     res = SeedService.apply_seed(data.get('seed', ''))
     if not res.get('ok'):
@@ -389,6 +437,7 @@ async def api_world_backups(request: Request):
 @app.post('/api/world/backup')
 async def api_world_backup(request: Request):
     require_session(request)
+    _require_csrf(request)
     res = WorldService.create_backup()
     if not res.get('ok'):
         return JSONResponse({'error': res.get('error', 'backup failed')}, status_code=400)
@@ -398,6 +447,7 @@ async def api_world_backup(request: Request):
 @app.post('/api/world/reset')
 async def api_world_reset(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     return WorldService.reset_world(with_backup=bool(data.get('with_backup', True)), new_seed=data.get('new_seed', None))
 
@@ -405,6 +455,7 @@ async def api_world_reset(request: Request):
 @app.post('/api/world/restore')
 async def api_world_restore(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     res = WorldService.restore_backup(str(data.get('name', '')).strip())
     if not res.get('ok'):
@@ -438,6 +489,7 @@ async def api_world_download(name: str, request: Request):
 @app.post('/api/world/upload-b64')
 async def api_world_upload_b64(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     res = WorldService.upload_world_zip_b64(str(data.get('archive_b64', '')), str(data.get('filename', 'uploaded-world.zip')))
     if not res.get('ok'):
@@ -451,6 +503,7 @@ async def api_world_upload_b64(request: Request):
 @app.post('/api/world/upload')
 async def api_world_upload(request: Request, file: UploadFile = File(...)):
     require_session(request)
+    _require_csrf(request)
     max_upload_bytes = WorldService.MAX_UPLOAD_BYTES
     chunk_size = 1024 * 1024
     raw = bytearray()
@@ -484,6 +537,7 @@ async def api_scheduler_get(request: Request):
 @app.post('/api/scheduler')
 async def api_scheduler_set(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     try:
         restart_minutes = int(data.get('restart_minutes', 0) or 0)
@@ -523,6 +577,7 @@ async def api_plugins_staged(request: Request):
 @app.post('/api/plugins/stage')
 async def api_plugins_stage(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     res = PluginService.stage_from_catalog(str(data.get('id', '')))
     if not res.get('ok'):
@@ -533,6 +588,7 @@ async def api_plugins_stage(request: Request):
 @app.post('/api/plugins/remove')
 async def api_plugins_remove(request: Request):
     require_session(request)
+    _require_csrf(request)
     data = await request.json()
     res = PluginService.remove_staged(str(data.get('file', '')))
     if not res.get('ok'):

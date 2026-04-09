@@ -14,6 +14,7 @@ from .config import (
     MAX_ATTEMPTS,
     _attempts,
     _lockouts,
+    save_lockouts,
 )
 
 
@@ -48,6 +49,7 @@ def is_locked(key: str, now: float) -> bool:
         return True
     if until and now >= until:
         _lockouts.pop(key, None)
+        save_lockouts()
     return False
 
 
@@ -58,6 +60,7 @@ def register_failed_attempt(key: str, now: float) -> None:
     if len(q) >= MAX_ATTEMPTS:
         _lockouts[key] = now + LOCKOUT_SEC
         q.clear()
+        save_lockouts()
 
 
 def require_session(request: Request) -> str:

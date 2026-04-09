@@ -737,7 +737,7 @@ write_env() {
     return
   fi
 
-  ARX_BIND_HOST="0.0.0.0" \
+  ARX_BIND_HOST="127.0.0.1" \
   ARX_BIND_PORT="$DASHBOARD_PORT" \
   ARX_ADMIN_USER="$ARX_ADMIN_USER" \
   ARX_ADMIN_PASS="$ARX_ADMIN_PASS" \

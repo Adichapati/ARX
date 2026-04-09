@@ -245,7 +245,10 @@ function escHtml(v){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'
 function escAttr(v){ return escHtml(v); }
 
 function st(id,m,ok=true){const e=document.getElementById(id); if(!e)return; e.textContent=m||''; e.className='statusline small '+(ok?'success':'error');}
-async function api(path,method='GET',body=null){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null}); if(r.status===401){location.href='/login'; throw new Error('unauthorized');} const j=await r.json().catch(()=>({error:'request failed'})); if(!r.ok) throw new Error(j.error||'request failed'); return j;}
+let csrfToken='';
+function isMutatingMethod(method){ const m=String(method||'GET').toUpperCase(); return m==='POST' || m==='PUT' || m==='PATCH' || m==='DELETE'; }
+async function ensureCsrf(){ if(csrfToken) return csrfToken; const r=await fetch('/api/csrf'); if(r.status===401){ location.href='/login'; throw new Error('unauthorized'); } const j=await r.json().catch(()=>({})); csrfToken=String(j.csrf_token||''); return csrfToken; }
+async function api(path,method='GET',body=null){ const headers={'Content-Type':'application/json'}; if(isMutatingMethod(method)){ const tok=await ensureCsrf(); if(tok){ headers['X-CSRF-Token']=tok; } } const r=await fetch(path,{method,headers,body:body?JSON.stringify(body):null}); if(r.status===401){location.href='/login'; throw new Error('unauthorized');} const j=await r.json().catch(()=>({error:'request failed'})); if(!r.ok) throw new Error(j.error||'request failed'); return j;}
 async function logout(){await api('/api/logout','POST'); location.href='/login';}
 async function act(a){try{await api('/api/'+a,'POST');}catch(e){st('cmdStatus',e.message,false)}}
 async function toggle(n){try{await api('/api/toggle/'+n,'POST');}catch(e){st('cmdStatus',e.message,false)}}
@@ -349,7 +352,7 @@ async function rb(){try{const r=await api('/api/world/backups'); blist.innerHTML
 async function rw(){if(!confirm('Reset world?'))return; try{const r=await api('/api/world/reset','POST',{with_backup:true,new_seed:resetSeed.value||null}); st('wstat',r.message,true); rb();}catch(e){st('wstat',e.message,false)}}
 async function rs(){if(!confirm('Restore backup?'))return; try{const r=await api('/api/world/restore','POST',{name:restoreName.value}); st('wstat',r.message,true);}catch(e){st('wstat',e.message,false)}}
 async function dw(){try{const r=await api('/api/world/download-url'); const w=window.open(r.url,'_blank','noopener,noreferrer'); if(w){w.opener=null;}}catch(e){st('wstat',e.message,false)}}
-async function uw(){const f=worldZip.files[0]; if(!f) return st('wstat','select a zip first',false); const fd=new FormData(); fd.append('file',f); try{const r=await fetch('/api/world/upload',{method:'POST',body:fd}); const j=await r.json(); if(!r.ok) throw new Error(j.error||'upload failed'); st('wstat',j.message,true);}catch(e){st('wstat',e.message,false)}}
+async function uw(){const f=worldZip.files[0]; if(!f) return st('wstat','select a zip first',false); const fd=new FormData(); fd.append('file',f); try{ const tok=await ensureCsrf(); const headers={}; if(tok){headers['X-CSRF-Token']=tok;} const r=await fetch('/api/world/upload',{method:'POST',headers,body:fd}); if(r.status===401){location.href='/login'; throw new Error('unauthorized');} const j=await r.json().catch(()=>({error:'upload failed'})); if(!r.ok) throw new Error(j.error||'upload failed'); st('wstat',j.message,true);}catch(e){st('wstat',e.message,false)}}
 async function rseed(){const r=await api('/api/seed/generate','POST'); seed.value=r.seed;}
 async function aseed(){try{const r=await api('/api/seed/apply','POST',{seed:seed.value}); st('sstat',r.message,true);}catch(e){st('sstat',e.message,false)}}
 async function ss(){try{await api('/api/scheduler','POST',{restart_minutes:parseInt(sr.value||'0',10)||0,backup_minutes:parseInt(sb.value||'0',10)||0}); st('astat','saved',true);}catch(e){st('astat',e.message,false)}}
