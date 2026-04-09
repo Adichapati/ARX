@@ -2,18 +2,27 @@
 
 All notable changes to ARX are documented here.
 
-## [Unreleased]
+## [1.0.0-beta] - 2026-04-09
 
 ### Added
-- Windows bootstrap installer flow that can launch from remote command execution and hydrate full runtime bundle.
-- Published website installer artifacts (`install.sh`, `install.ps1`, `arx-runtime.zip`) with checksum support.
+- Production-oriented installer distribution via `arxmc.studio` endpoints.
+- Windows bootstrap installer path with runtime bundle hydration.
+- Public checksum verification flow for installer artifacts.
 
 ### Changed
-- Project naming and branding standardized as ARX (Agentic Runtime for eXecution).
-- Documentation refreshed for production-ready install and operations guidance.
+- ARX branding finalized across runtime, docs, and installer UX.
+- Linux installer hardening:
+  - sudo preflight
+  - non-interactive dependency installation
+  - apt lock timeout handling
+- Windows installer hardening:
+  - admin-aware winget behavior
+  - timeout-safe package installation wrapper
+  - live winget output streaming and UAC wait hints
+- Documentation and release guidance aligned for production launch.
 
 ### Security
-- Preserved safeguards around command validation and OP-oriented execution boundaries.
+- Preserved command validation safeguards and OP-oriented execution boundaries.
 
 ## [0.1.0-alpha]
 

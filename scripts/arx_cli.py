@@ -740,7 +740,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 
 def cmd_version(_: argparse.Namespace) -> int:
-    print('arx-cli v0.1.0')
+    print('arx-cli v1.0.0')
     return 0
 
 
