@@ -43,6 +43,59 @@ need_cmd() { command -v "$1" >/dev/null 2>&1; }
 log() { echo "[ARX] $*"; }
 err() { echo "[ARX][ERROR] $*" >&2; }
 
+SUDO_READY=false
+SUDO_KEEPALIVE_PID=""
+
+ensure_sudo_ready() {
+  local allow_prompt="${1:-false}"
+
+  if [[ "$EUID" -eq 0 ]]; then
+    SUDO_READY=true
+    return 0
+  fi
+
+  if ! need_cmd sudo; then
+    err "This step requires administrator privileges, but 'sudo' is not available."
+    err "Install sudo or run installer as root."
+    return 1
+  fi
+
+  if sudo -n true >/dev/null 2>&1; then
+    SUDO_READY=true
+    return 0
+  fi
+
+  if [[ "$allow_prompt" == "true" && -t 0 && -t 1 ]]; then
+    log "Administrator privileges are required for dependency installation."
+    log "Please enter your sudo password once to continue."
+    if sudo -v; then
+      if sudo -n true >/dev/null 2>&1; then
+        # Keep sudo ticket fresh during long installs to avoid mid-step prompts.
+        ( while true; do sudo -n true >/dev/null 2>&1 || exit 0; sleep 45; done ) &
+        SUDO_KEEPALIVE_PID=$!
+        trap '[[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true' EXIT
+
+        SUDO_READY=true
+        return 0
+      fi
+    fi
+  fi
+
+  err "Administrator privileges are required, but sudo credentials are not available."
+  err "Run 'sudo -v' in this terminal, then rerun ./install.sh"
+  return 1
+}
+
+run_as_root() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+    return $?
+  fi
+
+  ensure_sudo_ready false || return 1
+  sudo -n "$@"
+}
+
 OS="$(uname -s)"
 case "$OS" in
   Linux*) PLATFORM="linux" ;;
@@ -296,17 +349,45 @@ tick_step() {
 install_pkg_linux() {
   local pkg="$1"
   if need_cmd apt-get; then
-    sudo apt-get update -y
-    sudo apt-get install -y "$pkg"
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Lock::Timeout=120 update -y
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Lock::Timeout=120 install -y --no-install-recommends "$pkg"
   elif need_cmd dnf; then
-    sudo dnf install -y "$pkg"
+    run_as_root dnf install -y "$pkg"
   elif need_cmd yum; then
-    sudo yum install -y "$pkg"
+    run_as_root yum install -y "$pkg"
   elif need_cmd pacman; then
-    sudo pacman -Sy --noconfirm "$pkg"
+    run_as_root pacman -Sy --noconfirm "$pkg"
   else
     err "No supported Linux package manager found for installing '$pkg'."
     return 1
+  fi
+}
+
+preflight_privileges() {
+  if [[ "$PLATFORM" != "linux" ]]; then
+    return
+  fi
+
+  local needs_priv=false
+
+  if [[ "$(java_major)" -lt 21 ]]; then
+    needs_priv=true
+  fi
+
+  if ! need_cmd tmux; then
+    needs_priv=true
+  fi
+
+  if ! need_cmd curl; then
+    needs_priv=true
+  fi
+
+  if ! need_cmd ollama; then
+    needs_priv=true
+  fi
+
+  if [[ "$needs_priv" == true ]]; then
+    ensure_sudo_ready true || exit 1
   fi
 }
 
@@ -411,7 +492,17 @@ install_prereqs() {
 ensure_ollama() {
   if ! need_cmd ollama; then
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-      curl -fsSL https://ollama.com/install.sh | sh
+      local tmp_installer
+      tmp_installer="$(mktemp)"
+      curl -fsSL https://ollama.com/install.sh -o "$tmp_installer"
+      chmod +x "$tmp_installer"
+      if ! run_as_root sh "$tmp_installer"; then
+        rm -f "$tmp_installer"
+        err "Failed to install Ollama automatically."
+        err "Install manually from https://ollama.com/download and rerun installer."
+        exit 1
+      fi
+      rm -f "$tmp_installer"
     else
       err "Unsupported OS for automatic Ollama install in install.sh."
       err "Use Windows install.bat on Windows."
@@ -742,6 +833,8 @@ box "Interactive First-Run"
 prompt_if_needed
 validate_inputs
 show_summary
+
+preflight_privileges
 
 transition "Running installation pipeline"
 run_step "Prerequisite checks" install_prereqs
