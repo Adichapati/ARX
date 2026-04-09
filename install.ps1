@@ -437,6 +437,85 @@ function Get-JavaMajorVersion {
     return (Get-JavaVersionInfo).major
 }
 
+function Test-IsElevated {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-WingetInstallPackage {
+    param(
+        [string]$PackageId,
+        [int]$TimeoutSec = 900
+    )
+
+    $isElevated = Test-IsElevated
+    $scope = if ($isElevated) { 'machine' } else { 'user' }
+
+    $args = @(
+        'install',
+        '--id', $PackageId,
+        '-e',
+        '--scope', $scope,
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        '--disable-interactivity',
+        '--silent'
+    )
+
+    $safeId = ($PackageId -replace '[^A-Za-z0-9_.-]', '_')
+    $logPath = Join-Path ([System.IO.Path]::GetTempPath()) ("arx-winget-{0}-{1}.log" -f $safeId, ([Guid]::NewGuid().ToString('N')))
+
+    Write-Host ("[ARX] winget install {0} (scope={1})..." -f $PackageId, $scope) -ForegroundColor DarkGray
+
+    try {
+        $proc = Start-Process -FilePath 'winget' -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput $logPath -RedirectStandardError $logPath
+    } catch {
+        return @{
+            code = 1
+            timedOut = $false
+            output = @($_.Exception.Message)
+            scope = $scope
+        }
+    }
+
+    $elapsed = 0
+    $tick = 5
+    while (-not $proc.HasExited -and $elapsed -lt $TimeoutSec) {
+        Start-Sleep -Seconds $tick
+        $elapsed += $tick
+        if (($elapsed % 30) -eq 0) {
+            Write-Host ("[ARX] winget still running for {0}s..." -f $elapsed) -ForegroundColor DarkGray
+        }
+    }
+
+    $timedOut = $false
+    if (-not $proc.HasExited) {
+        $timedOut = $true
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+    }
+
+    $lines = @()
+    try {
+        $lines = Get-Content -Path $logPath -ErrorAction SilentlyContinue | ForEach-Object { [string]$_ }
+    } catch {
+        $lines = @()
+    } finally {
+        Remove-Item $logPath -Force -ErrorAction SilentlyContinue
+    }
+
+    return @{
+        code = $(if ($timedOut) { 124 } else { $proc.ExitCode })
+        timedOut = $timedOut
+        output = $lines
+        scope = $scope
+    }
+}
+
 function Ensure-Java {
     $min = 21
     $info = Get-JavaVersionInfo
@@ -466,7 +545,12 @@ function Ensure-Java {
     }
 
     Write-Host "Java $min+ required. Attempting install/upgrade via winget..." -ForegroundColor Yellow
-    Require-Command winget 'winget not found. Install Java 21+ manually, then rerun installer.'
+    Ensure-WingetForWindows
+
+    if (-not (Test-IsElevated)) {
+        Write-Host "PowerShell is not running as Administrator. Winget may fail for machine-scoped Java packages." -ForegroundColor Yellow
+        Write-Host "If Java install fails, re-run this installer in an Administrator PowerShell." -ForegroundColor Yellow
+    }
 
     $packages = @(
         'Microsoft.OpenJDK.21',
@@ -476,16 +560,16 @@ function Ensure-Java {
 
     $installed = $false
     $wingetIndicatesPresent = $false
+    $timedOutAny = $false
 
     foreach ($pkg in $packages) {
-        $wingetOutput = @()
-        $code = 1
-        try {
-            $wingetOutput = (& winget install --id $pkg -e --accept-package-agreements --accept-source-agreements --silent 2>&1 | ForEach-Object { [string]$_ })
-            $code = $LASTEXITCODE
-        } catch {
-            $wingetOutput += $_.Exception.Message
-            $code = 1
+        $attempt = Invoke-WingetInstallPackage -PackageId $pkg -TimeoutSec 900
+        $wingetOutput = @($attempt.output)
+        $code = [int]$attempt.code
+        if ($attempt.timedOut) {
+            $timedOutAny = $true
+            Write-Host ("winget timed out while installing {0}. Trying next package id..." -f $pkg) -ForegroundColor Yellow
+            continue
         }
 
         $text = ($wingetOutput -join "`n")
@@ -497,6 +581,12 @@ function Ensure-Java {
 
         if ($code -eq 0) {
             $installed = $true
+        } else {
+            if ($text -match 'requires administrator privileges' -or
+                $text -match '0x8a15000f' -or
+                $text -match 'Access is denied') {
+                Write-Host "winget reported admin privilege requirement for Java package installation." -ForegroundColor Yellow
+            }
         }
 
         $env:PATH = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
@@ -527,14 +617,37 @@ function Ensure-Java {
         return
     }
 
+    if ($timedOutAny) {
+        throw 'winget Java install timed out. Re-run installer in Administrator PowerShell, or install Java 21+ manually and rerun.'
+    }
+
+    if (-not (Test-IsElevated)) {
+        throw 'Could not install Java automatically in non-elevated shell. Re-run PowerShell as Administrator and rerun installer.'
+    }
+
     throw 'Could not install Java automatically. Install Java 21+ manually and rerun installer.'
+}
+
+function Ensure-WingetForWindows {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw 'winget not found. Install App Installer from Microsoft Store, then rerun installer.'
+    }
 }
 
 function Ensure-Ollama([string]$ModelName) {
     if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Write-Host 'Ollama not found. Attempting install via winget...' -ForegroundColor Yellow
-        Require-Command winget 'winget not found. Install Ollama manually: https://ollama.com/download/windows'
-        & winget install Ollama.Ollama -e --accept-package-agreements --accept-source-agreements
+        Ensure-WingetForWindows
+        $attempt = Invoke-WingetInstallPackage -PackageId 'Ollama.Ollama' -TimeoutSec 900
+        $text = (($attempt.output | ForEach-Object { [string]$_ }) -join "`n")
+        if ($attempt.timedOut) {
+            throw 'winget timed out while installing Ollama. Re-run in Administrator PowerShell or install manually from https://ollama.com/download/windows'
+        }
+        if (($attempt.code -ne 0) -and
+            ($text -notmatch 'Found an existing package already installed') -and
+            ($text -notmatch 'No newer package versions are available')) {
+            throw 'Failed to install Ollama automatically. Install manually: https://ollama.com/download/windows'
+        }
     }
 
     try {
@@ -586,8 +699,17 @@ function Ensure-Playit {
 
     if (-not (Get-Command playit -ErrorAction SilentlyContinue)) {
         Write-Host 'Playit not found. Attempting install via winget...' -ForegroundColor Yellow
-        Require-Command winget 'winget not found. Install Playit manually: https://playit.gg/download'
-        & winget install DevelopedMethods.playit -e --accept-package-agreements --accept-source-agreements
+        Ensure-WingetForWindows
+        $attempt = Invoke-WingetInstallPackage -PackageId 'DevelopedMethods.playit' -TimeoutSec 900
+        $text = (($attempt.output | ForEach-Object { [string]$_ }) -join "`n")
+        if ($attempt.timedOut) {
+            throw 'winget timed out while installing Playit. Re-run in Administrator PowerShell or install manually: https://playit.gg/download'
+        }
+        if (($attempt.code -ne 0) -and
+            ($text -notmatch 'Found an existing package already installed') -and
+            ($text -notmatch 'No newer package versions are available')) {
+            throw 'Failed to install Playit automatically. Install manually: https://playit.gg/download'
+        }
     }
 
     Write-Host 'Playit enabled. Complete tunnel claim after install using: arx tunnel setup' -ForegroundColor Yellow
