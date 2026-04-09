@@ -471,6 +471,7 @@ function Invoke-WingetInstallPackage {
     $logPath = Join-Path ([System.IO.Path]::GetTempPath()) ("arx-winget-{0}-{1}.log" -f $safeId, ([Guid]::NewGuid().ToString('N')))
 
     Write-Host ("[ARX] winget install {0} (scope={1})..." -f $PackageId, $scope) -ForegroundColor DarkGray
+    Write-Host "[ARX] Waiting for winget response. If Windows prompts for admin approval, accept the UAC dialog." -ForegroundColor DarkGray
 
     try {
         $proc = Start-Process -FilePath 'winget' -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput $logPath -RedirectStandardError $logPath
@@ -484,11 +485,36 @@ function Invoke-WingetInstallPackage {
     }
 
     $elapsed = 0
-    $tick = 5
+    $tick = 3
+    $lastPrintedLineCount = 0
+    $printedUacHint = $false
     while (-not $proc.HasExited -and $elapsed -lt $TimeoutSec) {
         Start-Sleep -Seconds $tick
         $elapsed += $tick
-        if (($elapsed % 30) -eq 0) {
+
+        if (Test-Path $logPath) {
+            try {
+                $allLines = @(Get-Content -Path $logPath -ErrorAction SilentlyContinue)
+                if ($allLines.Count -gt $lastPrintedLineCount) {
+                    $newLines = $allLines[$lastPrintedLineCount..($allLines.Count - 1)]
+                    foreach ($line in $newLines) {
+                        $s = [string]$line
+                        if (-not [string]::IsNullOrWhiteSpace($s)) {
+                            Write-Host ("[winget] {0}" -f $s.Trim()) -ForegroundColor DarkGray
+                        }
+                    }
+                    $lastPrintedLineCount = $allLines.Count
+                }
+            } catch {
+            }
+        }
+
+        if (($elapsed -ge 18) -and (-not $printedUacHint)) {
+            Write-Host "[ARX] Still waiting — check for a hidden UAC/admin popup and approve it." -ForegroundColor Yellow
+            $printedUacHint = $true
+        }
+
+        if (($elapsed % 15) -eq 0) {
             Write-Host ("[ARX] winget still running for {0}s..." -f $elapsed) -ForegroundColor DarkGray
         }
     }
