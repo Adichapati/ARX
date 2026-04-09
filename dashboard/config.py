@@ -12,9 +12,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env')
 
-APP_NAME = 'OpenClaw-style MC Dashboard'
+APP_NAME = 'ARX Minecraft Dashboard'
 BIND_HOST = os.environ.get('BIND_HOST', '0.0.0.0')
-# Isolation default for oneclick fork
 BIND_PORT = int(os.environ.get('BIND_PORT', '18890'))
 
 MINECRAFT_DIR = Path(os.environ.get('MINECRAFT_DIR', str((ROOT / 'app' / 'minecraft_server').resolve()))).resolve()

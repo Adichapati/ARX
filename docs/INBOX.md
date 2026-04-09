@@ -6,7 +6,7 @@ Place your planning inputs here:
 - `architecture.md` (or `architecture.pdf`)
 - Any additional notes in this folder or `../attachments/`
 
-Once uploaded, tell Gemma Assistant: "process the docs in /root/openclaw-dashboard-oneclick/docs".
+Once uploaded, tell the assistant: "process the docs in the repository docs directory".
 
 ## Active Execution Note
 - User preference (2026-04-07): defer manual terminal testing until all implementation phases are complete.

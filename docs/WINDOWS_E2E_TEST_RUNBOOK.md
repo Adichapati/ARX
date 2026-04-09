@@ -1,95 +1,144 @@
-# Windows E2E Test Runbook (ARX)
+# Windows End-to-End Test Runbook (ARX)
 
-Use this to run a full end-to-end validation on Windows.
+Use this runbook for a full Windows validation pass.
 
 ## 0) Prerequisites
+
 - Windows 10/11
-- PowerShell (Admin for winget installs)
-- Python 3.11+
-- Git
-- Java 21+ (installer attempts to handle dependencies)
+- PowerShell (Admin for dependency installs when needed)
+- Internet access for first install/model pull
 
-## 1) Get the code
+Notes:
+- Installer provisions Python environment inside ARX runtime.
+- Installer attempts Java and Ollama readiness automatically.
 
-If repo is published:
+---
+
+## 1) Clean test install (recommended)
+
+PowerShell bootstrap command:
+
 ```powershell
-git clone https://github.com/ORG_OR_USER/REPO_NAME.git
-cd REPO_NAME
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://arxmc.studio/install.ps1 | iex"
 ```
 
-If you already downloaded source, just `cd` into project root.
+Optional custom install location:
 
-## 2) Run installer (Windows path)
-
-Preferred (PowerShell, best visuals + arrow-key interactive option lists):
 ```powershell
-.\install.ps1
+$env:ARX_INSTALL_DIR = "D:\ARX"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://arxmc.studio/install.ps1 | iex"
 ```
 
-Or via batch wrapper:
-```powershell
-.\install.bat
+Expected default install path:
+
+```text
+%USERPROFILE%\ARX
 ```
 
-Non-interactive (recommended for repeatable test):
-```powershell
-.\install.ps1 -Yes -ForceEnv -Port 18890 -Trigger gemma -Model gemma4:e2b -ContextSize 12288 -Temperature 0.15
+---
+
+## 2) Verify installer output
+
+Expected artifacts in ARX root:
+
+- `.venv\`
+- `.env`
+- `app\minecraft_server\server.jar`
+- `state\arx_config.json`
+- `scripts\arx_cli.py`
+
+Expected launcher path:
+
+```text
+%USERPROFILE%\AppData\Local\Microsoft\WindowsApps\arx.bat
 ```
 
-Expected outcomes:
-- `.venv` created
-- Ollama installed/running
-- `gemma4:e2b` pulled
-- `app\minecraft_server\server.jar` present
-- `.env` generated
+---
 
-## 3) Start dashboard
+## 3) Lifecycle validation
+
+In a new PowerShell terminal:
+
 ```powershell
-.\.venv\Scripts\activate
-uvicorn main:app --host 0.0.0.0 --port 18890
+arx start
+arx status
+arx open
 ```
 
-Open in browser:
-- http://localhost:18890
+Expected:
+- Dashboard reachable (default `http://localhost:18890/`)
+- Minecraft service running
+- Ollama service reachable
 
-## 4) Test checklist (functional)
-1. Login works
-2. Start/Stop/Restart works
-3. Runtime health shows statuses
-4. First-run Gemma setup saves
-5. Server properties save/reload works
-6. OP/whitelist panel add/remove works (persist + API path)
-7. Console send command works on Linux/tmux runtime; on native Windows this currently returns a clear "console passthrough unavailable" message
-8. WebSocket logs stream and reconnect cleanly after refresh/network blip
+Shutdown path:
 
-## 5) Gemma safety checks
-In Minecraft chat (as OP), trigger using `gemma` and verify:
-- Placeholder command requests are rejected
-- Blocked commands are refused
-- Non-allowlisted commands are refused
-- Targeted commands require own username
-- Success-style response only after log observation
+```powershell
+arx shutdown
+arx status
+```
 
-## 6) Troubleshooting
-- Ollama missing model:
-  ```powershell
-  ollama pull gemma4:e2b
-  ```
-- Ollama not running:
-  ```powershell
-  ollama serve
-  ```
-- Recreate env:
-  ```powershell
-  .\install.bat --yes --force-env
-  ```
+Expected after shutdown:
+- Dashboard down
+- Minecraft down
+- Ollama down
 
-## 7) GitHub installer path (no domain)
-Use GitHub path until domain is available:
-- Repo: `https://github.com/Adichapati/openclaw-dashboard-oneclick`
-- Main fallback install.sh path:
-  `https://raw.githubusercontent.com/Adichapati/openclaw-dashboard-oneclick/main/install.sh`
-- Pinned tag format (recommended once tagged):
-  `https://raw.githubusercontent.com/Adichapati/openclaw-dashboard-oneclick/vX.Y.Z/install.sh`
+---
 
-For Windows, clone the repo and run `install.bat` from the checkout.
+## 4) Functional checklist
+
+1. Login works with configured admin credentials.
+2. Start/Stop/Restart actions behave correctly.
+3. Runtime health/status panel updates correctly.
+4. Config save/reload operations persist.
+5. Player/OP management actions persist.
+6. Log stream reconnects cleanly after refresh.
+7. AI context update works:
+
+```powershell
+arx ai set-context 4096
+arx restart
+```
+
+---
+
+## 5) AI safety checks
+
+From Minecraft chat (as OP), validate:
+
+- Disallowed command requests are rejected.
+- Placeholder-style target values are rejected.
+- Non-OP users are guide/chat-only (no command execution).
+- Successful execution messaging follows observed server feedback.
+
+---
+
+## 6) Troubleshooting quick fixes
+
+If `arx` is not found:
+
+- Restart terminal.
+- Verify launcher exists at `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps\arx.bat`.
+
+If Ollama model missing:
+
+```powershell
+ollama pull gemma4:e2b
+```
+
+If service state appears stuck:
+
+```powershell
+arx shutdown
+arx start
+```
+
+If stopping server fails due to permissions:
+- Run terminal as Administrator and retry.
+
+---
+
+## 7) Release source references
+
+- Runtime repo: `https://github.com/Adichapati/ARX`
+- Website artifacts: `https://arxmc.studio/`
+- Release fallback: `https://github.com/Adichapati/ARX/releases`

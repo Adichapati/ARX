@@ -1,16 +1,17 @@
-# ARX Isolation Policy
+# ARX Development Safety Notes
 
-This project must never affect the existing dashboard/server stack.
+This document is historical guidance from development-phase sandboxing.
 
-Rules:
-1. Use only `/root/openclaw-dashboard-oneclick` for ARX development.
-2. Do not bind ARX to existing production dashboard port (`18789`).
-3. Default ARX dashboard port is `18890`.
-4. Use dedicated tmux session (`mc_server_arx`) for ARX-managed server.
-5. Any test automation must target ARX paths/ports only.
-6. Do not modify files under `/root/openclaw-dashboard` during ARX development.
+Current production project identity:
+- Product: ARX
+- Runtime repository: `https://github.com/Adichapati/ARX`
+- Website/docs repository: `https://github.com/Adichapati/arx-website`
 
-Verification before running ARX tests:
-- Confirm ARX binds to port `18890`.
-- Confirm no commands target `mcserver` session used by existing stack.
-- Confirm ARX `.env` is local to ARX root.
+Production operation guidance:
+1. Use standard ARX install commands from README and website docs.
+2. Validate checksums before production install.
+3. Use dedicated runtime directories per environment.
+4. Keep backups before in-place upgrades.
+
+Note:
+- Development-time local path restrictions in old notes were for staging safety and are not product guarantees.

@@ -56,7 +56,7 @@ class PluginService:
         out_name = f"{item_id}-{int(now_ts())}.jar"
         out_path = PLUGINS_DIR / out_name
 
-        req = urllib.request.Request(found['url'], headers={'User-Agent': 'OpenClawDashboard/1.0'})
+        req = urllib.request.Request(found['url'], headers={'User-Agent': 'ARXDashboard/1.0'})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
                 data = r.read(120 * 1024 * 1024)

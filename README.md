@@ -1,164 +1,158 @@
 # ARX — Agentic Runtime for eXecution
 
-```text
- ___  ________   __
- / _ \ | ___ \ \ / /
-/ /_\ \| |_/ /\ V /
-|  _  ||    / /   \
-| | | || |\ \/ /^\ \
-\_| |_/\_| \_\/   \/
-```
+ARX is a local-first Minecraft operations platform with a production-minded installer, browser dashboard, and global `arx` CLI.
 
-Local-first, one-click deployable Minecraft server dashboard with an integrated Gemma assistant (`gemma4:e2b`) running via local Ollama.
+It is built for operators who want fast setup, clear controls, and local AI assistance (Ollama + Gemma) without cloud lock-in.
 
-## Isolation Guarantee (Important)
-ARX development/testing is isolated from your existing dashboard/server:
-- Separate project root: `/root/openclaw-dashboard-oneclick`
-- Separate default dashboard port: `18890` (not `18789`)
-- Separate tmux session default: `mc_server_arx`
-- Separate installer/runtime scripts
+---
 
-## Supported Platforms (v0.1.0)
-- Official: Linux + Windows
-- Best effort: macOS
+## Why ARX
 
-Note: native Windows runtime now supports installer/dashboard/server lifecycle. For best installer visuals on Windows, use `install.ps1` (the `install.bat` file is now a wrapper that forwards to PowerShell). Interactive console passthrough (tmux-style send-keys) is still Linux-first and currently returns a clear unavailable message on Windows.
+- Fast setup with guided installer UX
+- Local AI workflow powered by `gemma4:e2b`
+- Browser dashboard + terminal CLI lifecycle controls
+- Optional Playit tunnel for public joins
+- Release integrity verification with SHA-256 checksums
+- Safer command pathways with explicit validation and OP-gated execution boundaries
 
-Installer now auto-checks Java runtime and attempts to install/upgrade to Java 21+ (required by recent Minecraft server jars) on Linux/macOS/Windows.
+---
 
-## Vision
-OpenClaw-style onboarding:
-- User copies one install command
-- Runs setup wizard
-- Opens dashboard in browser
-- Manages server + local Gemma assistant safely
+## Platform Support
 
-## One-Command Install
+- Linux: official
+- Windows: official
+- macOS: best effort
 
+---
 
-Release-pinned installer (recommended for production):
+## Install
+
+### Linux / macOS (recommended stable path)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/vX.Y.Z/install.sh | bash
-```
-
-Website-hosted installer (future domain):
-
-```bash
-curl -fsSL https://INSTALLER_DOMAIN_PLACEHOLDER/install.sh | bash
-```
-
-GitHub-direct fallback (until domain is live):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ORG_OR_USER/REPO_NAME/main/install.sh | bash
-```
-
-## Local Dev / Manual Install
-
-```bash
-cd /root/openclaw-dashboard-oneclick
+git clone https://github.com/Adichapati/ARX.git
+cd ARX
 ./install.sh
-# or non-interactive:
-./install.sh --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --context-size 4096 --temperature 0.15
-./scripts/start_dashboard.sh
 ```
 
-Open:
-- Private dashboard: `http://<host>:18890/`
+Non-interactive example:
 
-## ARX Command (post-setup)
+```bash
+./install.sh --yes --force-env --port 18890 --trigger gemma --model gemma4:e2b --temperature 0.2 --mc-version 1.20.4
+```
 
-After installer completes, use the global `arx` command:
+### Windows
+
+PowerShell bootstrap installer:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://arxmc.studio/install.ps1 | iex"
+```
+
+By default, Windows bootstrap installs ARX into:
+
+```text
+%USERPROFILE%\ARX
+```
+
+You can override location with:
+
+```powershell
+$env:ARX_INSTALL_DIR = "D:\ARX"
+```
+
+---
+
+## First Run
+
+After install, use:
+
+```bash
+arx start
+arx status
+arx open
+```
+
+Default dashboard URL:
+
+```text
+http://localhost:18890/
+```
+
+---
+
+## CLI Quick Reference
 
 ```bash
 arx help
 arx start
 arx start dashboard
-arx start ollama
 arx start server
+arx start ollama
+arx stop
+arx shutdown
+arx restart
 arx status
 arx doctor
-arx open
-arx shutdown
-```
-
-`arx help` commands:
-- `arx help` — Show command menu
-- `arx start` — Start all services (Ollama + Minecraft + dashboard; backward-compatible default)
-- `arx start dashboard` — Start dashboard only
-- `arx start ollama` — Start Ollama only
-- `arx start server` — Start Minecraft server only
-- `arx stop` — Stop dashboard + Minecraft (keeps Ollama running)
-- `arx shutdown` — Stop dashboard + Minecraft + Ollama (+ Playit tunnel if running)
-- `arx restart` — Restart stack
-- `arx status` — Show live service status (dashboard/server/ollama/playit)
-- `arx doctor` — Run local read-only diagnostics with PASS/WARN/FAIL checks + remediation hints (exits non-zero on critical failures; zero on pass/pass-with-warnings)
-- `arx open` — Open dashboard in browser
-- `arx logs [dashboard|server|ollama|playit]` — Tail logs
-- `arx ai set-context <tokens>` — Set Gemma/Ollama context tokens in .env and runtime config (restart required)
-- `GEMMA_COMMAND_EXECUTION_BETA=true|false` — Global beta switch in `.env` (true => OP-only execution, false => everyone guide/chat only)
-- Gemma command guide prompt: `prompts/gemma-minecraft-commands.md` (LLM behavior grounding)
-- Command execution policy (beta): enabled for OP players only; non-OP players are guide/chat only (no command execution)
-- Chat parser supports both `<player> message` and `player: message` log formats so non-OP guide mode works across server/proxy variants
-- `arx tunnel setup [--url <address>] [--enable]` — Start Playit, show guided steps, and optionally save public tunnel URL
-- `arx tunnel status` — Show Playit status + configured public URL
-- `arx tunnel open` — Open configured Playit URL (or playit.gg if unset)
-- `arx tunnel stop` — Stop Playit tunnel agent
-- `arx version` — Print ARX CLI version
-
-## Public Internet Access (Playit)
-
-ARX setup now includes Playit enablement for easier public join flow.
-
-Gemma context tuning note:
-- Installer now defaults to a stable local context size (4096) to avoid OOM/500 errors.
-- To tune later, use:
-
-```bash
+arx logs dashboard --lines 120
 arx ai set-context 4096
-# then
-arx restart
-```
-
-After setup:
-
-```bash
-arx tunnel setup --enable
-arx tunnel setup --url your-name.playit.gg:12345 --enable
+arx tunnel setup
 arx tunnel status
 arx tunnel open
-arx logs playit --lines 120
+arx tunnel stop
+arx version
 ```
 
-Then create/verify a Playit TCP tunnel target to `127.0.0.1:25565`.
-Share the resulting public Playit address with friends.
+Notes:
+- `arx stop` keeps Ollama running.
+- `arx shutdown` stops dashboard + server + Ollama (+ Playit if running).
 
-## Tech Stack
-- Python 3.11+
-- FastAPI + Uvicorn
-- Vanilla JS + WebSockets
-- Ollama local endpoint (`/v1/chat/completions`)
-- Gemma model: `gemma4:e2b`
-- File-based state (`state/*.json`, `latest.log`, `server.properties`)
+---
 
-## Planning & Launch Docs
-- PRD: `docs/prd.md`
-- Architecture: `docs/architecture.md`
-- Go-live plan: `docs/GO_LIVE_PLAN.md`
-- Stage plan: `docs/STAGE_PLAN.md`
-- v0.1.0 checklist: `docs/RELEASE_CHECKLIST_v0.1.0.md`
-- GitHub issue backlog: `docs/GITHUB_BACKLOG_v0.1.0.md`
-- Gemma naming refactor plan: `docs/GEMMA_NOMENCLATURE_REFACTOR_PLAN.md`
+## Security and Safety Model
 
-## What’s Next
-1. Replace installer domain placeholder with real domain.
-2. Run full terminal end-to-end validation pass.
-3. Iterate fixes from test results.
-4. Tag and publish v0.1.0 release.
+ARX is local-first by default. Key safeguards include:
 
+- Local model runtime via Ollama
+- Controlled command execution pathways
+- OP-oriented execution boundaries
+- Input/command validation guards
+- Checksum verification for installer artifacts
 
-## Verification
-- Release checksum workflow: `.github/workflows/release.yml`
-- Local artifact/checksum generator: `scripts/generate_release_artifacts.sh`
-- Verification guide: `docs/RELEASE_VERIFICATION.md`
+See: `SECURITY.md`
+
+---
+
+## Release Verification
+
+Use checksums before production installs:
+
+- Guide: `docs/RELEASE_VERIFICATION.md`
+- Live checksum file: `https://arxmc.studio/checksums.txt`
+
+---
+
+## Project Structure (high-level)
+
+```text
+ARX/
+├── dashboard/              # FastAPI dashboard app + services
+├── scripts/                # arx CLI + installer helpers
+├── app/minecraft_server/   # Server runtime directory
+├── state/                  # Local runtime state
+├── install.sh              # Linux/macOS installer
+├── install.ps1             # Windows installer (bootstrap-aware)
+└── main.py                 # FastAPI entrypoint
+```
+
+---
+
+## Contributing
+
+Please read `CONTRIBUTING.md` before opening PRs.
+
+---
+
+## License
+
+See `LICENSE`.

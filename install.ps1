@@ -105,7 +105,7 @@ function Show-Banner {
     }
     Write-Host ''
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-    Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup            |' -ForegroundColor White
+    Write-Host '| Agentic Runtime for eXecution | Production Setup                |' -ForegroundColor White
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
     Write-Host ''
 }
@@ -129,7 +129,7 @@ function Show-TitleAnimation {
         }
         Write-Host ''
         Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-        Write-Host '| Agentic Runtime for eXecution | OpenClaw-style Setup            |' -ForegroundColor White
+        Write-Host '| Agentic Runtime for eXecution | Production Setup                |' -ForegroundColor White
         Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
         Start-Sleep -Milliseconds 35
     }

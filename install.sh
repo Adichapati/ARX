@@ -124,7 +124,7 @@ banner() {
   /_/  |_| /_/ |_|     /_/\_\
 
 +------------------------------------------------------------------+
-| Agentic Runtime for eXecution | OpenClaw-style Setup            |
+| Agentic Runtime for eXecution | Production Setup                |
 +------------------------------------------------------------------+
 EOF
 }

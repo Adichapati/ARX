@@ -252,7 +252,7 @@ Examples:
             data=body,
             headers={
                 'Content-Type': 'application/json',
-                'User-Agent': 'OpenClawDashboard/Gemma',
+                'User-Agent': 'ARXDashboard/Gemma',
             },
             method='POST',
         )

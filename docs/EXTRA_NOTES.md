@@ -27,7 +27,7 @@ These notes align implementation with the PRD + architecture and reduce ambiguit
   - install/check Ollama and pull `gemma4:e2b`
   - download official vanilla `server.jar`
   - write `.env` with secure defaults + generated secrets
-- Optional: emit and install systemd service file (`openclaw-dashboard.service`).
+- Optional: emit and install systemd service file (`arx-dashboard.service`).
 
 ## Suggested initial milestones
 1. Scaffold app + services + state files.
