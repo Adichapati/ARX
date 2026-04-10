@@ -136,12 +136,22 @@ class PluginService:
 
     @staticmethod
     def remove_staged(file_name: str) -> dict:
-        if '/' in file_name or '..' in file_name:
+        name = str(file_name or '').strip()
+        if (
+            not name
+            or '/' in name
+            or '\\' in name
+            or '..' in name
+            or name.startswith('.')
+            or name.startswith('~')
+            or ':' in name
+        ):
             return {'ok': False, 'error': 'Invalid file name'}
-        p = PLUGINS_DIR / file_name
+
+        p = PLUGINS_DIR / name
         if p.exists():
             os.remove(p)
 
-        idx = [x for x in load_plugins_index() if x.get('file') != file_name]
+        idx = [x for x in load_plugins_index() if x.get('file') != name]
         save_plugins_index(idx)
         return {'ok': True, 'message': 'Removed staged file'}

@@ -95,6 +95,25 @@ class SecurityHardeningTests(unittest.TestCase):
         # Restore expected process-global config module state after the isolated reload.
         importlib.reload(config_module)
 
+    def test_login_rejects_invalid_json_with_400(self):
+        client = TestClient(app_module.app)
+        response = client.post("/api/login", content='{"username":', headers={"Content-Type": "application/json"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"detail": "Invalid JSON payload"})
+
+    def test_login_rejects_non_object_json_with_400(self):
+        client = TestClient(app_module.app)
+        response = client.post("/api/login", json=["not-an-object"])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"detail": "JSON body must be an object"})
+
+    def test_plugin_remove_rejects_empty_and_windows_style_paths(self):
+        self.assertFalse(PluginService.remove_staged("").get("ok"))
+        self.assertFalse(PluginService.remove_staged("..\\evil.jar").get("ok"))
+        self.assertFalse(PluginService.remove_staged("C:plugin.jar").get("ok"))
+
 
 if __name__ == "__main__":
     unittest.main()

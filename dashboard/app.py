@@ -141,6 +141,18 @@ def _require_csrf(request: Request) -> None:
         raise HTTPException(status_code=403, detail='CSRF token missing or invalid')
 
 
+async def _parse_json_object(request: Request) -> dict:
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid JSON payload')
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail='JSON body must be an object')
+
+    return data
+
+
 @app.get('/login', response_class=HTMLResponse)
 async def login_page(request: Request):
     if request.session.get('user'):
@@ -150,7 +162,7 @@ async def login_page(request: Request):
 
 @app.post('/api/login')
 async def api_login(request: Request):
-    data = await request.json()
+    data = await _parse_json_object(request)
     username = str(data.get('username', '')).strip()
     password = str(data.get('password', ''))
 
@@ -295,7 +307,7 @@ async def ws_feed(ws: WebSocket):
 async def api_console_send(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     command = str(data.get('command', '')).strip()
     tier = str(data.get('tier', _console_policy.get('tier', 'safe'))).strip().lower()
     if tier not in ('safe', 'moderate', 'admin'):
@@ -332,7 +344,7 @@ async def api_players_state(request: Request):
 async def api_players_action(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     action = str(data.get('action', '')).strip()
     name = str(data.get('name', '')).strip()
     reason = str(data.get('reason', '')).strip()
@@ -388,7 +400,7 @@ async def api_properties(request: Request):
 async def api_properties_save(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     updates = data.get('updates') or {}
     if not isinstance(updates, dict):
         return JSONResponse({'error': 'updates must be object'}, status_code=400)
@@ -421,7 +433,7 @@ async def api_seed_generate(request: Request):
 async def api_seed_apply(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     res = SeedService.apply_seed(data.get('seed', ''))
     if not res.get('ok'):
         return JSONResponse({'error': res.get('error', 'failed')}, status_code=400)
@@ -448,7 +460,7 @@ async def api_world_backup(request: Request):
 async def api_world_reset(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     return WorldService.reset_world(with_backup=bool(data.get('with_backup', True)), new_seed=data.get('new_seed', None))
 
 
@@ -456,7 +468,7 @@ async def api_world_reset(request: Request):
 async def api_world_restore(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     res = WorldService.restore_backup(str(data.get('name', '')).strip())
     if not res.get('ok'):
         payload = {'error': res.get('error', 'restore failed')}
@@ -490,7 +502,7 @@ async def api_world_download(name: str, request: Request):
 async def api_world_upload_b64(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     res = WorldService.upload_world_zip_b64(str(data.get('archive_b64', '')), str(data.get('filename', 'uploaded-world.zip')))
     if not res.get('ok'):
         payload = {'error': res.get('error', 'upload failed')}
@@ -538,7 +550,7 @@ async def api_scheduler_get(request: Request):
 async def api_scheduler_set(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     try:
         restart_minutes = int(data.get('restart_minutes', 0) or 0)
         backup_minutes = int(data.get('backup_minutes', 0) or 0)
@@ -578,7 +590,7 @@ async def api_plugins_staged(request: Request):
 async def api_plugins_stage(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     res = PluginService.stage_from_catalog(str(data.get('id', '')))
     if not res.get('ok'):
         return JSONResponse({'error': res.get('error', 'failed')}, status_code=400)
@@ -589,7 +601,7 @@ async def api_plugins_stage(request: Request):
 async def api_plugins_remove(request: Request):
     require_session(request)
     _require_csrf(request)
-    data = await request.json()
+    data = await _parse_json_object(request)
     res = PluginService.remove_staged(str(data.get('file', '')))
     if not res.get('ok'):
         return JSONResponse({'error': res.get('error', 'failed')}, status_code=400)
