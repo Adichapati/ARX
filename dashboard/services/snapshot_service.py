@@ -1,5 +1,6 @@
 import socket
-import subprocess
+import urllib.error
+import urllib.request
 
 import psutil
 
@@ -27,12 +28,17 @@ def public_ip_cached() -> str:
         return _public_ip_cache['value']
 
     try:
-        ip = subprocess.check_output('curl -s https://api.ipify.org', shell=True, text=True, timeout=3).strip()
+        req = urllib.request.Request(
+            'https://api.ipify.org',
+            headers={'User-Agent': 'ARX/1.0 snapshot-service'},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            ip = resp.read().decode('utf-8', errors='ignore').strip()
         if ip:
             _public_ip_cache['value'] = ip
             _public_ip_cache['expires_at'] = now + 600
             return ip
-    except Exception:
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         pass
 
     _public_ip_cache['expires_at'] = now + 120
