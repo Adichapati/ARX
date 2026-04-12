@@ -478,9 +478,10 @@ async def api_world_restore(request: Request):
     return res
 
 
-@app.get('/api/world/download-url')
+@app.post('/api/world/download-url')
 async def api_world_download_url(request: Request):
     require_session(request)
+    _require_csrf(request)
     res = WorldService.create_backup()
     if not res.get('ok'):
         return JSONResponse({'error': res.get('error', 'download failed')}, status_code=400)

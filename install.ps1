@@ -16,9 +16,43 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $BootstrapZipUrl = if ([string]::IsNullOrWhiteSpace($env:ARX_BOOTSTRAP_ZIP_URL)) { 'https://arxmc.studio/arx-runtime.zip' } else { $env:ARX_BOOTSTRAP_ZIP_URL }
+$BootstrapChecksumsUrl = if ([string]::IsNullOrWhiteSpace($env:ARX_BOOTSTRAP_CHECKSUMS_URL)) { 'https://arxmc.studio/checksums.txt' } else { $env:ARX_BOOTSTRAP_CHECKSUMS_URL }
 $BootstrapInstallDir = if ([string]::IsNullOrWhiteSpace($env:ARX_INSTALL_DIR)) { Join-Path $env:USERPROFILE 'ARX' } else { $env:ARX_INSTALL_DIR }
 $ScriptDir = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) { (Get-Location).Path } else { $PSScriptRoot }
 if (-not (Test-Path $ScriptDir)) { $ScriptDir = (Get-Location).Path }
+
+function Get-BootstrapExpectedHash([string]$ChecksumsText, [string]$TargetFileName) {
+    foreach ($rawLine in ($ChecksumsText -split "`n")) {
+        $line = $rawLine.Trim()
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) { continue }
+        $m = [regex]::Match($line, '^(?<hash>[a-fA-F0-9]{64})\s+\*?(?<name>.+)$')
+        if (-not $m.Success) { continue }
+        if ($m.Groups['name'].Value.Trim() -eq $TargetFileName) {
+            return $m.Groups['hash'].Value.ToLowerInvariant()
+        }
+    }
+    return ''
+}
+
+function Assert-BootstrapZipIntegrity([string]$ZipPath, [string]$ZipUrl, [string]$ChecksumsUrl) {
+    $checksums = Invoke-RestMethod -Uri $ChecksumsUrl
+    if ($checksums -isnot [string]) { $checksums = [string]$checksums }
+
+    $targetFile = [System.IO.Path]::GetFileName(([System.Uri]$ZipUrl).AbsolutePath)
+    if ([string]::IsNullOrWhiteSpace($targetFile)) {
+        throw "Unable to determine target filename from bootstrap URL: $ZipUrl"
+    }
+
+    $expected = Get-BootstrapExpectedHash -ChecksumsText $checksums -TargetFileName $targetFile
+    if ([string]::IsNullOrWhiteSpace($expected)) {
+        throw "Missing checksum entry for $targetFile in $ChecksumsUrl"
+    }
+
+    $actual = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        throw "Bootstrap checksum mismatch for $targetFile. Expected $expected but got $actual"
+    }
+}
 
 function Test-ProjectRoot([string]$BaseDir) {
     return (Test-Path (Join-Path $BaseDir 'requirements.txt')) -and
@@ -33,6 +67,7 @@ if (-not (Test-ProjectRoot $ScriptDir)) {
     $zipPath = Join-Path ([System.IO.Path]::GetTempPath()) ("arx-runtime-{0}.zip" -f ([Guid]::NewGuid().ToString('N')))
     try {
         Invoke-WebRequest -Uri $BootstrapZipUrl -OutFile $zipPath
+        Assert-BootstrapZipIntegrity -ZipPath $zipPath -ZipUrl $BootstrapZipUrl -ChecksumsUrl $BootstrapChecksumsUrl
         Expand-Archive -Path $zipPath -DestinationPath $BootstrapInstallDir -Force
     }
     finally {
@@ -802,10 +837,18 @@ try {
             if ([string]::IsNullOrWhiteSpace($AdminUser)) { $AdminUser = 'admin' }
         }
         if ([string]::IsNullOrWhiteSpace($AdminPass)) {
-            $AdminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password (required, min 8 chars)'
+            if (-not [string]::IsNullOrWhiteSpace($env:ARX_ADMIN_PASS)) {
+                $AdminPass = $env:ARX_ADMIN_PASS
+            }
+            if ([string]::IsNullOrWhiteSpace($AdminPass)) {
+                $AdminPass = Prompt-TextWithArt -Title 'Admin Account' -ArtTag 'admin' -PromptText 'Admin password (required, min 8 chars)'
+            }
         }
     } else {
         if ([string]::IsNullOrWhiteSpace($AdminUser)) { $AdminUser = 'admin' }
+        if ([string]::IsNullOrWhiteSpace($AdminPass) -and -not [string]::IsNullOrWhiteSpace($env:ARX_ADMIN_PASS)) {
+            $AdminPass = $env:ARX_ADMIN_PASS
+        }
     }
 
     # Context is fixed by default for setup stability.

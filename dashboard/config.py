@@ -75,6 +75,7 @@ SESSION_COOKIE_SAMESITE = (os.environ.get('SESSION_COOKIE_SAMESITE', 'lax') or '
 if SESSION_COOKIE_SAMESITE not in {'lax', 'strict', 'none'}:
     SESSION_COOKIE_SAMESITE = 'lax'
 CSRF_ENABLED = _env_bool('CSRF_ENABLED', True)
+TRUST_X_FORWARDED_FOR = _env_bool('TRUST_X_FORWARDED_FOR', False)
 
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')

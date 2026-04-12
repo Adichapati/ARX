@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +25,24 @@ class OpAssistPermissionsTests(unittest.TestCase):
         out = OpAssistService._enforce_permissions_on_decision('lapiforss', decision, can_execute=False)
         self.assertEqual(out.get('type'), 'chat')
         self.assertIn('OP', out.get('say', ''))
+
+    def test_llm_call_uses_async_thread_bridge_for_urlopen(self):
+        class _FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"choices":[{"message":{"content":"{\\"type\\":\\"chat\\",\\"say\\":\\"ok\\"}"}}]}'
+
+        with patch('dashboard.services.op_assist_service.GEMMA_ENABLED', True), \
+             patch('dashboard.services.op_assist_service.urllib.request.urlopen', return_value=_FakeResp()):
+            out = asyncio.run(OpAssistService._llm_call('lapiforss', 'gemma hello', can_execute=False))
+
+        self.assertEqual(out.get('type'), 'chat')
+        self.assertEqual(out.get('say'), 'ok')
 
 
 if __name__ == '__main__':

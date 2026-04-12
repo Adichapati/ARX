@@ -12,6 +12,7 @@ from .config import (
     AUTH_USERNAME,
     LOCKOUT_SEC,
     MAX_ATTEMPTS,
+    TRUST_X_FORWARDED_FOR,
     _attempts,
     _lockouts,
     save_lockouts,
@@ -33,7 +34,11 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def client_key(request: Request, username: str) -> str:
-    ip = request.headers.get('x-forwarded-for', '').split(',')[0].strip() or (request.client.host if request.client else 'unknown')
+    ip = request.client.host if request.client else 'unknown'
+    if TRUST_X_FORWARDED_FOR:
+        forwarded = request.headers.get('x-forwarded-for', '').split(',')[0].strip()
+        if forwarded:
+            ip = forwarded
     return f'{ip}:{username.lower()}'
 
 

@@ -26,7 +26,8 @@ goto copy_args
 shift
 if "%~1"=="" goto run_ps
 set "ARX_ADMIN_PASS=%~1"
-set PS_FLAGS=%PS_FLAGS% --AdminPass "%~1"
+rem Do NOT forward admin password as a PowerShell CLI argument (process-list exposure).
+rem install.ps1 will read ARX_ADMIN_PASS from environment when needed.
 shift
 goto copy_args
 

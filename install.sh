@@ -16,6 +16,8 @@ PLAYIT_ENABLED=""
 PLAYIT_URL=""
 ADMIN_USER=""
 ADMIN_PASS=""
+OLLAMA_INSTALL_SH_URL="https://ollama.com/install.sh"
+OLLAMA_INSTALL_SH_SHA256="25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -493,8 +495,31 @@ ensure_ollama() {
   if ! need_cmd ollama; then
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
       local tmp_installer
+      local actual_sha
       tmp_installer="$(mktemp)"
-      curl -fsSL https://ollama.com/install.sh -o "$tmp_installer"
+      curl -fsSL "$OLLAMA_INSTALL_SH_URL" -o "$tmp_installer"
+
+      if need_cmd sha256sum; then
+        actual_sha="$(sha256sum "$tmp_installer" | awk '{print $1}')"
+      elif need_cmd shasum; then
+        actual_sha="$(shasum -a 256 "$tmp_installer" | awk '{print $1}')"
+      elif need_cmd openssl; then
+        actual_sha="$(openssl dgst -sha256 "$tmp_installer" | awk '{print $NF}')"
+      else
+        rm -f "$tmp_installer"
+        err "No SHA-256 tool found (sha256sum/shasum/openssl). Cannot verify Ollama installer integrity."
+        exit 1
+      fi
+
+      if [[ "${actual_sha,,}" != "${OLLAMA_INSTALL_SH_SHA256,,}" ]]; then
+        rm -f "$tmp_installer"
+        err "Ollama installer checksum mismatch."
+        err "Expected: $OLLAMA_INSTALL_SH_SHA256"
+        err "Actual  : $actual_sha"
+        err "Refusing to execute unverified installer."
+        exit 1
+      fi
+
       chmod +x "$tmp_installer"
       if ! run_as_root sh "$tmp_installer"; then
         rm -f "$tmp_installer"

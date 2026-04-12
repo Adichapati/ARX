@@ -24,8 +24,8 @@ from ..config import (
 )
 
 
-def run(cmd: str) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, shell=True, text=True, capture_output=True)
+def run(cmd: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, text=True, capture_output=True)
 
 
 class ServerService:
@@ -155,7 +155,7 @@ class ServerService:
     def tmux_session_exists() -> bool:
         if ServerService._is_windows():
             return False
-        cp = run(f"tmux has-session -t {TMUX_SESSION} 2>/dev/null")
+        cp = run(['tmux', 'has-session', '-t', TMUX_SESSION])
         return cp.returncode == 0
 
     @staticmethod
@@ -232,15 +232,26 @@ class ServerService:
                 state['last_status_note'] = 'start failed (windows)'
                 return f'failed: {e}'
 
-        cmd = f"tmux new-session -d -s {TMUX_SESSION} 'cd {shlex.quote(str(MINECRAFT_DIR))} && ./start.sh'"
-        cp = run(cmd)
+        cp = run(['tmux', 'new-session', '-d', '-s', TMUX_SESSION, f'cd {shlex.quote(str(MINECRAFT_DIR))} && ./start.sh'])
         if cp.returncode == 0:
             state['last_status_note'] = 'start command sent (tmux)'
             return 'started'
 
-        cp2 = run(f'cd {shlex.quote(str(MINECRAFT_DIR))} && nohup ./start.sh > /tmp/minecraft-server.out 2>&1 &')
-        state['last_status_note'] = 'start command sent (nohup fallback)'
-        return 'started' if cp2.returncode == 0 else f'failed: {(cp.stderr or cp2.stderr).strip()}'
+        try:
+            os.makedirs('/tmp', exist_ok=True)
+            out = open('/tmp/minecraft-server.out', 'ab')
+            subprocess.Popen(
+                ['bash', '-lc', f'cd {shlex.quote(str(MINECRAFT_DIR))} && nohup ./start.sh'],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=out,
+                start_new_session=True,
+                close_fds=True,
+            )
+            state['last_status_note'] = 'start command sent (nohup fallback)'
+            return 'started'
+        except Exception as e:
+            return f'failed: {(cp.stderr or str(e)).strip()}'
 
     @staticmethod
     def stop() -> str:
@@ -265,9 +276,9 @@ class ServerService:
             time.sleep(3)
 
         if ServerService.is_running():
-            run("pkill -f 'server.jar' || true")
+            subprocess.run(['pkill', '-f', 'server.jar'], check=False, capture_output=True, text=True)
         if ServerService.tmux_session_exists():
-            run(f"tmux kill-session -t {TMUX_SESSION} || true")
+            run(['tmux', 'kill-session', '-t', TMUX_SESSION])
 
         state['last_action'] = 'stop'
         state['last_status_note'] = 'stop command sent'
@@ -363,8 +374,7 @@ class ServerService:
         if not ServerService.tmux_session_exists():
             return {'ok': False, 'error': 'Console unavailable (server not in tmux). Restart once from dashboard.'}
 
-        quoted = command.replace('"', '\\"')
-        cp = run(f'tmux send-keys -t {TMUX_SESSION} "{quoted}" C-m')
+        cp = run(['tmux', 'send-keys', '-t', TMUX_SESSION, command, 'C-m'])
         if cp.returncode != 0:
             return {'ok': False, 'error': (cp.stderr or 'Failed to send command').strip()}
 

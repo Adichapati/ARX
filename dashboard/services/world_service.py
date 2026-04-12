@@ -240,8 +240,22 @@ class WorldService:
             ServerService.stop()
 
         backup_info = WorldService.create_backup() if with_backup else None
+        if with_backup and (not backup_info or not backup_info.get('ok')):
+            if was_running:
+                ServerService.start()
+            return {
+                'ok': False,
+                'error': (backup_info or {}).get('error', 'Backup failed before reset'),
+                'backup': backup_info,
+            }
+
         if new_seed is not None:
-            SeedService.apply_seed(new_seed)
+            seed_result = SeedService.apply_seed(new_seed)
+            if not seed_result.get('ok'):
+                if was_running:
+                    ServerService.start()
+                return {'ok': False, 'error': seed_result.get('error', 'Failed to update seed'), 'backup': backup_info}
+
         WorldService.delete_world_files()
 
         if was_running:

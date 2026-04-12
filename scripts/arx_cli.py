@@ -375,7 +375,7 @@ def _stop_server() -> tuple[bool, str]:
 
 
 def _start_dashboard() -> tuple[bool, str]:
-    if _find_dashboard_procs() or _port_open('127.0.0.1', bind_port()):
+    if _find_dashboard_procs() or _port_open(bind_host(), bind_port()):
         return True, 'already running'
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -405,7 +405,7 @@ def _start_dashboard() -> tuple[bool, str]:
         return False, f'failed: {e}'
 
     for _ in range(20):
-        if _port_open('127.0.0.1', bind_port()):
+        if _port_open(bind_host(), bind_port()):
             return True, 'started'
         time.sleep(0.3)
     return False, 'did not become reachable in time'
@@ -516,7 +516,7 @@ def cmd_help(_: argparse.Namespace) -> int:
 
 
 def cmd_status(_: argparse.Namespace) -> int:
-    dash = bool(_find_dashboard_procs() or _port_open('127.0.0.1', bind_port()))
+    dash = bool(_find_dashboard_procs() or _port_open(bind_host(), bind_port()))
     server = bool(_find_server_procs())
     ollama = _ollama_ok()
     p_enabled = playit_enabled()
@@ -566,10 +566,11 @@ def cmd_doctor(_: argparse.Namespace) -> int:
         _emit('FAIL', 'dashboard port config', f'invalid BIND_PORT={raw_port!r}', 'set BIND_PORT to an integer between 1 and 65535')
 
     if dashboard_port is not None:
-        if _port_open('127.0.0.1', dashboard_port):
-            _emit('PASS', 'dashboard port reachability', f'127.0.0.1:{dashboard_port} is reachable')
+        host = bind_host()
+        if _port_open(host, dashboard_port):
+            _emit('PASS', 'dashboard port reachability', f'{host}:{dashboard_port} is reachable')
         else:
-            _emit('WARN', 'dashboard port reachability', f'127.0.0.1:{dashboard_port} is not reachable', 'start dashboard with: arx start dashboard')
+            _emit('WARN', 'dashboard port reachability', f'{host}:{dashboard_port} is not reachable', 'start dashboard with: arx start dashboard')
 
     mc_dir = minecraft_dir()
     if mc_dir.exists() and mc_dir.is_dir():

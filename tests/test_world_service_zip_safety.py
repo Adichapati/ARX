@@ -480,3 +480,34 @@ class WorldServiceZipSafetyTests(unittest.TestCase):
 
         self.assertEqual(exc.exception.status_code, 400)
         self.assertEqual(exc.exception.detail, "Invalid file")
+
+
+class WorldResetSafetyTests(unittest.TestCase):
+    def test_reset_world_aborts_when_backup_fails_and_restores_running_server(self):
+        with (
+            patch("dashboard.services.world_service.ServerService.is_running", return_value=True),
+            patch("dashboard.services.world_service.ServerService.stop") as stop,
+            patch("dashboard.services.world_service.ServerService.start") as start,
+            patch.object(WorldService, "create_backup", return_value={"ok": False, "error": "backup failed"}),
+            patch.object(WorldService, "delete_world_files") as delete_world,
+        ):
+            result = WorldService.reset_world(with_backup=True, new_seed=None)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "backup failed")
+        stop.assert_called_once()
+        start.assert_called_once()
+        delete_world.assert_not_called()
+
+    def test_reset_world_aborts_when_seed_apply_fails(self):
+        with (
+            patch("dashboard.services.world_service.ServerService.is_running", return_value=False),
+            patch.object(WorldService, "create_backup", return_value={"ok": True, "name": "b.zip"}),
+            patch("dashboard.services.world_service.SeedService.apply_seed", return_value={"ok": False, "error": "bad seed"}),
+            patch.object(WorldService, "delete_world_files") as delete_world,
+        ):
+            result = WorldService.reset_world(with_backup=True, new_seed="abc")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "bad seed")
+        delete_world.assert_not_called()

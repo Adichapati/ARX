@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -206,7 +207,7 @@ Examples:
         return None
 
     @staticmethod
-    def _llm_call(user: str, text: str, can_execute: bool) -> dict:
+    async def _llm_call(user: str, text: str, can_execute: bool) -> dict:
         # Fallback if LLM disabled
         if not GEMMA_ENABLED:
             if can_execute:
@@ -257,9 +258,12 @@ Examples:
             method='POST',
         )
 
-        try:
+        def _post_ollama() -> str:
             with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read().decode('utf-8', errors='replace')
+                return r.read().decode('utf-8', errors='replace')
+
+        try:
+            raw = await asyncio.to_thread(_post_ollama)
         except urllib.error.HTTPError as e:
             # Avoid vague drift after temporary API failures.
             if int(getattr(e, 'code', 0) or 0) >= 500:
@@ -351,7 +355,7 @@ Examples:
 
                         OpAssistService._add_history(user, 'user', msg)
                         can_execute = OpAssistService._can_execute_commands_for_user(is_op=is_op)
-                        decision = OpAssistService._llm_call(user, msg, can_execute)
+                        decision = await OpAssistService._llm_call(user, msg, can_execute)
                         decision = OpAssistService._enforce_permissions_on_decision(user, decision, can_execute)
 
                         if decision.get('type') == 'chat':
@@ -431,6 +435,7 @@ Examples:
                                 OpAssistService._say(f"sorry {user}, command failed.")
 
             except Exception:
-                pass
+                # Never swallow loop exceptions silently; keep the loop alive with visibility.
+                print('[ARX][op_assist] loop error:\n' + traceback.format_exc(), flush=True)
 
             await asyncio.sleep(2)
