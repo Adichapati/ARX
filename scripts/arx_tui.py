@@ -4,12 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import argparse
 import importlib
+import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import psutil
@@ -22,6 +21,44 @@ except Exception:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / '.env'
+TUI_THEMES = ('neon_underground', 'classic_dark', 'mono')
+
+
+_THEME_PALETTES: dict[str, dict[str, str]] = {
+    'neon_underground': {
+        'screen_bg': '#0b0f14',
+        'right_border': '#2f3b4a',
+        'banner': '#6ee7ff',
+        'services': '#d1f7ff',
+        'hotkeys': '#9ca3af',
+        'logs_title': '#f9d65c',
+        'modal_border': '#4c7aaf',
+        'modal_bg': '#111827',
+        'cmd_title': '#93c5fd',
+    },
+    'classic_dark': {
+        'screen_bg': '#111111',
+        'right_border': '#3a3a3a',
+        'banner': '#70d6ff',
+        'services': '#f0f0f0',
+        'hotkeys': '#bdbdbd',
+        'logs_title': '#ffdd57',
+        'modal_border': '#5c7a99',
+        'modal_bg': '#1a1a1a',
+        'cmd_title': '#9ecbff',
+    },
+    'mono': {
+        'screen_bg': '#0f0f0f',
+        'right_border': '#4a4a4a',
+        'banner': '#d4d4d4',
+        'services': '#efefef',
+        'hotkeys': '#bfbfbf',
+        'logs_title': '#e0e0e0',
+        'modal_border': '#8a8a8a',
+        'modal_bg': '#151515',
+        'cmd_title': '#f0f0f0',
+    },
+}
 
 
 def _env_file() -> dict[str, str]:
@@ -147,6 +184,83 @@ def _tail(path: Path, lines: int = 8) -> str:
     return '\n'.join(data[-lines:])
 
 
+def _ui_state() -> dict:
+    p = ROOT / 'state' / 'arx_ui.json'
+    if not p.exists():
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_ui_state(patch_obj: dict) -> None:
+    p = ROOT / 'state' / 'arx_ui.json'
+    data = _ui_state()
+    data.update(patch_obj)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2), encoding='utf-8')
+
+
+def resolve_tui_theme() -> str:
+    env_theme = os.environ.get('ARX_TUI_THEME', '').strip().lower()
+    if env_theme in TUI_THEMES:
+        return env_theme
+
+    state_theme = str(_ui_state().get('theme', '')).strip().lower()
+    if state_theme in TUI_THEMES:
+        return state_theme
+
+    return 'neon_underground'
+
+
+def reduce_motion_enabled() -> bool:
+    env = os.environ.get('ARX_REDUCE_MOTION', '').strip().lower()
+    if env in {'1', 'true', 'yes', 'on'}:
+        return True
+
+    state_motion = _ui_state().get('motion', True)
+    if isinstance(state_motion, bool):
+        return not state_motion
+    return False
+
+
+def next_tui_theme(current: str) -> str:
+    c = (current or '').strip().lower()
+    if c not in TUI_THEMES:
+        return TUI_THEMES[0]
+    idx = TUI_THEMES.index(c)
+    return TUI_THEMES[(idx + 1) % len(TUI_THEMES)]
+
+
+def build_tui_css(theme: str, reduced_motion: bool) -> str:
+    palette = _THEME_PALETTES.get(theme, _THEME_PALETTES['neon_underground'])
+    transition = '' if reduced_motion else '        transition: color 120ms, background 120ms;\n'
+    return f"""
+        Screen {{ background: {palette['screen_bg']}; }}
+        #layout {{ height: 1fr; }}
+        #left {{ width: 2fr; padding: 1 2; }}
+        #right {{ width: 1fr; padding: 1 1; border-left: solid {palette['right_border']}; }}
+        #banner {{ color: {palette['banner']}; }}
+        #services {{ margin-top: 1; color: {palette['services']};{transition} }}
+        #hotkeys {{ margin-top: 1; color: {palette['hotkeys']}; }}
+        #logs-title {{ color: {palette['logs_title']}; }}
+        #logs-box {{ height: 1fr; }}
+        #cmd-modal {{
+            width: 80%;
+            height: 70%;
+            margin: 2 4;
+            border: round {palette['modal_border']};
+            padding: 1;
+            background: {palette['modal_bg']};
+        }}
+        #cmd-title {{ color: {palette['cmd_title']}; }}
+        #cmd-log {{ height: 1fr; margin-top: 1; }}
+        #theme-chip {{ color: {palette['logs_title']}; margin-top: 1; }}
+    """
+
+
 def _log_snippet(source: str) -> str:
     source = (source or 'dashboard').strip().lower()
     if source == 'dashboard':
@@ -226,13 +340,16 @@ def _render_banner_text() -> str:
     return pack.arx_logo or 'ARX'
 
 
-def run_textual_app() -> int:
+def run_textual_app(theme: str, reduced_motion: bool) -> int:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Container, Horizontal
     from textual.reactive import reactive
     from textual.screen import ModalScreen
     from textual.widgets import Footer, Header, Static, TextLog
+
+    initial_theme = theme if theme in TUI_THEMES else 'neon_underground'
+    initial_reduced = bool(reduced_motion)
 
     class CommandResultScreen(ModalScreen[None]):
         BINDINGS = [Binding('escape', 'dismiss', 'Close')]
@@ -244,7 +361,7 @@ def run_textual_app() -> int:
 
         def compose(self) -> ComposeResult:
             yield Container(
-                Static(self._title, id='cmd-title'),
+                Static(f'{self._title} · Press Esc to close', id='cmd-title'),
                 TextLog(id='cmd-log', wrap=True, highlight=False),
                 id='cmd-modal',
             )
@@ -258,27 +375,7 @@ def run_textual_app() -> int:
             self.dismiss(None)
 
     class ArxTuiApp(App):
-        CSS = """
-        Screen { background: #0b0f14; }
-        #layout { height: 1fr; }
-        #left { width: 2fr; padding: 1 2; }
-        #right { width: 1fr; padding: 1 1; border-left: solid #2f3b4a; }
-        #banner { color: #6ee7ff; }
-        #services { margin-top: 1; color: #d1f7ff; }
-        #hotkeys { margin-top: 1; color: #9ca3af; }
-        #logs-title { color: #f9d65c; }
-        #logs-box { height: 1fr; }
-        #cmd-modal {
-            width: 80%;
-            height: 70%;
-            margin: 2 4;
-            border: round #4c7aaf;
-            padding: 1;
-            background: #111827;
-        }
-        #cmd-title { color: #93c5fd; }
-        #cmd-log { height: 1fr; margin-top: 1; }
-        """
+        CSS = build_tui_css(initial_theme, initial_reduced)
 
         BINDINGS = [
             Binding('q', 'quit', 'Quit'),
@@ -291,9 +388,13 @@ def run_textual_app() -> int:
             Binding('2', 'log_server', 'Server log'),
             Binding('3', 'log_ollama', 'Ollama log'),
             Binding('4', 'log_playit', 'Playit log'),
+            Binding('t', 'cycle_theme', 'Theme'),
+            Binding('m', 'toggle_motion', 'Motion'),
         ]
 
         log_source = reactive('dashboard')
+        current_theme = reactive(initial_theme)
+        reduced_motion = reactive(initial_reduced)
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
@@ -301,21 +402,35 @@ def run_textual_app() -> int:
                 with Container(id='left'):
                     yield Static(_render_banner_text(), id='banner')
                     yield Static('', id='services')
-                    yield Static('Hotkeys: [s]start [x]stop [r]restart [o]open [d]doctor [1-4]logs [q]quit', id='hotkeys')
+                    yield Static('', id='theme-chip')
+                    yield Static(
+                        'Hotkeys: [s]start [x]stop [r]restart [o]open [d]doctor [1-4]logs [t]theme [m]motion [q]quit',
+                        id='hotkeys',
+                    )
                 with Container(id='right'):
-                    yield Static('Logs (1 dashboard, 2 server, 3 ollama, 4 playit)', id='logs-title')
+                    yield Static('', id='logs-title')
                     yield TextLog(id='logs-box', wrap=True, highlight=False)
             yield Footer()
 
         def on_mount(self) -> None:
             self.title = 'ARX TUI'
             self.sub_title = 'Agentic Runtime for eXecution'
-            self.set_interval(1.0, self.refresh_snapshot)
+            self.set_interval(1.6 if self.reduced_motion else 1.0, self.refresh_snapshot)
             self.refresh_snapshot()
+
+        def _update_labels(self) -> None:
+            self.query_one('#logs-title', Static).update(
+                f'Logs · {self.log_source.upper()} · switch with 1/2/3/4'
+            )
+            motion_label = 'reduced' if self.reduced_motion else 'full'
+            self.query_one('#theme-chip', Static).update(
+                f'Theme: {self.current_theme} · Motion: {motion_label}'
+            )
 
         def refresh_snapshot(self) -> None:
             snap = _snapshot()
             self.query_one('#services', Static).update(_render_services_text(snap))
+            self._update_labels()
 
             log_widget = self.query_one('#logs-box', TextLog)
             log_widget.clear()
@@ -344,6 +459,29 @@ def run_textual_app() -> int:
         def action_doctor(self) -> None:
             self._run_action('ARX doctor', 'doctor')
 
+        def action_cycle_theme(self) -> None:
+            self.current_theme = next_tui_theme(self.current_theme)
+            _save_ui_state({'theme': self.current_theme})
+            self.push_screen(
+                CommandResultScreen(
+                    title='Theme switched',
+                    body=f'Current theme: {self.current_theme}\nSaved to state/arx_ui.json',
+                )
+            )
+            self._update_labels()
+
+        def action_toggle_motion(self) -> None:
+            self.reduced_motion = not self.reduced_motion
+            _save_ui_state({'motion': not self.reduced_motion})
+            mode = 'reduced' if self.reduced_motion else 'full'
+            self.push_screen(
+                CommandResultScreen(
+                    title='Motion mode',
+                    body=f'Now using {mode} motion\nSaved to state/arx_ui.json',
+                )
+            )
+            self._update_labels()
+
         def action_log_dashboard(self) -> None:
             self.log_source = 'dashboard'
             self.refresh_snapshot()
@@ -371,7 +509,9 @@ def run_tui() -> int:
         print('textual is not installed. Install with: ./.venv/bin/python -m pip install -r requirements.txt')
         return 1
 
-    return run_textual_app()
+    theme = resolve_tui_theme()
+    reduced_motion = reduce_motion_enabled()
+    return run_textual_app(theme=theme, reduced_motion=reduced_motion)
 
 
 def main() -> int:

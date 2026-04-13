@@ -114,6 +114,7 @@ arx style set underground
 arx style preview underground
 arx tui
 python3 scripts/arx_tui.py --once   # debug single snapshot (no full-screen)
+# inside TUI: t = cycle theme, m = toggle reduced motion
 arx version
 ```
 

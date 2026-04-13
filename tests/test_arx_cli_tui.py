@@ -75,12 +75,16 @@ class ArxCliTuiTests(unittest.TestCase):
                 return fake_textual_app
             return real_import(name, package)
 
-        with patch.object(arx_tui, 'run_textual_app', return_value=0) as run_app:
-            with patch('importlib.import_module', side_effect=fake_import):
-                rc = arx_tui.run_tui()
+        with patch.object(arx_tui, 'resolve_tui_theme', return_value='mono') as resolve_theme:
+            with patch.object(arx_tui, 'reduce_motion_enabled', return_value=True) as reduce_motion:
+                with patch.object(arx_tui, 'run_textual_app', return_value=0) as run_app:
+                    with patch('importlib.import_module', side_effect=fake_import):
+                        rc = arx_tui.run_tui()
 
         self.assertEqual(rc, 0)
-        run_app.assert_called_once()
+        resolve_theme.assert_called_once()
+        reduce_motion.assert_called_once()
+        run_app.assert_called_once_with(theme='mono', reduced_motion=True)
 
     def test_arx_tui_once_mode_prints_snapshot(self):
         import scripts.arx_tui as arx_tui
