@@ -114,6 +114,65 @@ function Test-InteractiveConsole {
 
 $script:CanUseFancyUi = Test-InteractiveConsole
 
+function Test-UnicodeSupport {
+    $forceAscii = if ($env:ARX_FORCE_ASCII) { [string]$env:ARX_FORCE_ASCII } else { '' }
+    if ($forceAscii.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')) {
+        return $false
+    }
+
+    try {
+        $encName = [Console]::OutputEncoding.WebName
+        if ($encName -and $encName.ToLowerInvariant().Contains('utf')) {
+            return $true
+        }
+    } catch {
+    }
+
+    $langHint = if ($env:LC_ALL) { [string]$env:LC_ALL } elseif ($env:LANG) { [string]$env:LANG } else { '' }
+    return $langHint.Trim().ToLowerInvariant().Contains('utf')
+}
+
+function Get-StateStyle {
+    $statePath = Join-Path $ScriptDir 'state\arx_ui.json'
+    if (-not (Test-Path $statePath)) {
+        return ''
+    }
+
+    try {
+        $raw = Get-Content -Path $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($raw -and $raw.style) {
+            return ([string]$raw.style).Trim().ToLowerInvariant()
+        }
+    } catch {
+    }
+
+    return ''
+}
+
+function Resolve-InstallerStyle {
+    # Allowed styles: underground, dos, minimal, off
+    $style = ''
+    if (-not [string]::IsNullOrWhiteSpace($env:ARX_STYLE)) {
+        $style = $env:ARX_STYLE
+    }
+    if ([string]::IsNullOrWhiteSpace($style)) {
+        $style = Get-StateStyle
+    }
+
+    $style = ([string]$style).Trim().ToLowerInvariant()
+    if ($style -notin @('underground', 'dos', 'minimal', 'off')) {
+        $style = 'underground'
+    }
+
+    if ($style -eq 'underground' -and -not (Test-UnicodeSupport)) {
+        return 'minimal'
+    }
+
+    return $style
+}
+
+$script:InstallerStyle = Resolve-InstallerStyle
+
 function Safe-Clear {
     if ($script:CanUseFancyUi) {
         try { Clear-Host } catch { }
@@ -121,24 +180,62 @@ function Safe-Clear {
 }
 
 function Get-BannerLines {
-    return @(
-        '      ___      ____   __   __',
-        '     /   |    / __ \  \ \ / /',
-        '    / /| |   / /_/ /   \ V / ',
-        '   / ___ |  / _, _/     > <  ',
-        '  /_/  |_| /_/ |_|     /_/\_\ '
-    )
+    switch ($script:InstallerStyle) {
+        'underground' {
+            return @(
+                ' █████╗ ██████╗ ██╗  ██╗',
+                '██╔══██╗██╔══██╗╚██╗██╔╝',
+                '███████║██████╔╝ ╚███╔╝ ',
+                '██╔══██║██╔══██╗ ██╔██╗ ',
+                '██║  ██║██║  ██║██╔╝ ██╗',
+                '╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝'
+            )
+        }
+        'dos' {
+            return @(
+                '______   ______  __   __',
+                '|  _  \ /  __  \ \ \ / /',
+                '| | | | | /  \ |  \ V /',
+                '| | | | | |  | |   > <',
+                '| |/ /  | \__/ |  / . \',
+                '|___/    \____/  /_/ \_\'
+            )
+        }
+        'minimal' {
+            return @(
+                '    ___    ____  _  __',
+                '   /   |  / __ \| |/ /',
+                '  / /| | / /_/ /   /',
+                ' / ___ |/ _, _/   |',
+                '/_/  |_/_/ |_/_/|_|'
+            )
+        }
+        'off' {
+            return @()
+        }
+        default {
+            return @(
+                '    ___    ____  _  __',
+                '   /   |  / __ \| |/ /',
+                '  / /| | / /_/ /   /',
+                ' / ___ |/ _, _/   |',
+                '/_/  |_/_/ |_/_/|_|'
+            )
+        }
+    }
 }
 
 function Show-Banner {
     Safe-Clear
     Write-Host ''
     $lines = Get-BannerLines
-    $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        Write-Host $lines[$i] -ForegroundColor $colors[$i]
+    if ($lines.Count -gt 0) {
+        $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta', 'Blue')
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            Write-Host $lines[$i] -ForegroundColor $colors[$i % $colors.Count]
+        }
+        Write-Host ''
     }
-    Write-Host ''
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
     Write-Host '| Agentic Runtime for eXecution | Production Setup                |' -ForegroundColor White
     Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
@@ -149,7 +246,9 @@ function Show-TitleAnimation {
     if ($Yes -or -not $script:CanUseFancyUi) { return }
 
     $lines = Get-BannerLines
-    $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta')
+    if ($lines.Count -eq 0) { return }
+
+    $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta', 'Blue')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
 
     for ($col = 1; $col -le $maxLen; $col += 2) {
@@ -160,7 +259,7 @@ function Show-TitleAnimation {
             $n = [Math]::Min($col, $line.Length)
             $left = $line.Substring(0, $n)
             $pad = ' ' * ($maxLen - $n)
-            Write-Host ($left + $pad) -ForegroundColor $colors[$i]
+            Write-Host ($left + $pad) -ForegroundColor $colors[$i % $colors.Count]
         }
         Write-Host ''
         Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray

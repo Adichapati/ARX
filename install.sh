@@ -113,18 +113,112 @@ fi
 STEP_TOTAL=11
 STEP_CUR=0
 
+supports_unicode() {
+  if [[ "${ARX_FORCE_ASCII:-}" =~ ^(1|true|yes|on)$ ]]; then
+    return 1
+  fi
+
+  local lang_hint="${LC_ALL:-${LANG:-}}"
+  if [[ "${lang_hint,,}" == *"utf"* ]]; then
+    return 0
+  fi
+
+  if need_cmd locale; then
+    local cm
+    cm="$(locale charmap 2>/dev/null || true)"
+    if [[ "${cm,,}" == *"utf"* ]]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+installer_state_style() {
+  local state_file="$ROOT_DIR/state/arx_ui.json"
+  if [[ ! -f "$state_file" ]]; then
+    return 0
+  fi
+
+  sed -n 's/.*"style"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$state_file" | head -n1
+}
+
+resolve_installer_style() {
+  # Allowed style values: underground|dos|minimal|off
+  local style="${ARX_STYLE:-}"
+  if [[ -z "$style" ]]; then
+    style="$(installer_state_style)"
+  fi
+  style="${style,,}"
+
+  case "$style" in
+    underground|dos|minimal|off) ;;
+    *) style="underground" ;;
+  esac
+
+  if [[ "$style" == "underground" ]] && ! supports_unicode; then
+    style="minimal"
+  fi
+
+  printf '%s' "$style"
+}
+
+installer_logo() {
+  local style="$1"
+  case "$style" in
+    underground)
+      cat <<'EOF'
+ █████╗ ██████╗ ██╗  ██╗
+██╔══██╗██╔══██╗╚██╗██╔╝
+███████║██████╔╝ ╚███╔╝
+██╔══██║██╔══██╗ ██╔██╗
+██║  ██║██║  ██║██╔╝ ██╗
+╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+EOF
+      ;;
+    dos)
+      cat <<'EOF'
+______   ______  __   __
+|  _  \ /  __  \ \ \ / /
+| | | | | /  \ |  \ V /
+| | | | | |  | |   > <
+| |/ /  | \__/ |  / . \
+|___/    \____/  /_/ \_\
+EOF
+      ;;
+    minimal)
+      cat <<'EOF'
+    ___    ____  _  __
+   /   |  / __ \| |/ /
+  / /| | / /_/ /   /
+ / ___ |/ _, _/   |
+/_/  |_/_/ |_/_/|_|
+EOF
+      ;;
+    off)
+      ;;
+    *)
+      cat <<'EOF'
+    ___    ____  _  __
+   /   |  / __ \| |/ /
+  / /| | / /_/ /   /
+ / ___ |/ _, _/   |
+/_/  |_/_/ |_/_/|_|
+EOF
+      ;;
+  esac
+}
+
+INSTALLER_STYLE="$(resolve_installer_style)"
+
 banner() {
   if [[ -n "${TERM:-}" && "$UI_ENABLED" == true ]]; then
     clear || true
   fi
+  echo
+  installer_logo "$INSTALLER_STYLE"
+  echo
   cat <<'EOF'
-
-      ___      ____   __   __
-     /   |    / __ \  \ \ / /
-    / /| |   / /_/ /   \ V /
-   / ___ |  / _, _/     > <
-  /_/  |_| /_/ |_|     /_/\_\
-
 +------------------------------------------------------------------+
 | Agentic Runtime for eXecution | Production Setup                |
 +------------------------------------------------------------------+
