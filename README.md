@@ -168,6 +168,13 @@ Please read `CONTRIBUTING.md` before opening PRs.
 
 ---
 
+## Repository cleanup policy
+
+This repository intentionally excludes AI-agent workflow notes and temporary planning inbox files.
+Runtime code, installers, tests, and operator-facing documentation are kept as the canonical source.
+
+---
+
 ## License
 
 See `LICENSE`.
