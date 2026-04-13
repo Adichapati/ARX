@@ -645,7 +645,7 @@ function Invoke-WingetInstallPackage {
         }
 
         if (($elapsed -ge 18) -and (-not $printedUacHint)) {
-            Write-Host "[ARX] Still waiting — check for a hidden UAC/admin popup and approve it." -ForegroundColor Yellow
+            Write-Host "[ARX] Still waiting - check for a hidden UAC/admin popup and approve it." -ForegroundColor Yellow
             $printedUacHint = $true
         }
 
@@ -685,7 +685,7 @@ function Ensure-Java {
         $src = if ($info.source) { $info.source } else { 'java' }
         $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
         $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
-        Write-Host "Java 21+ detected via $src (major=$major) — skipping install." -ForegroundColor DarkGray
+        Write-Host "Java 21+ detected via $src (major=$major) - skipping install." -ForegroundColor DarkGray
         Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
         Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
         return
@@ -699,7 +699,7 @@ function Ensure-Java {
         $src = if ($info.source) { $info.source } else { 'java' }
         $line = if ($info.firstLine) { $info.firstLine } else { 'version output unavailable' }
         $jpath = if ($info.path) { $info.path } else { 'java (PATH)' }
-        Write-Host "Java 21+ detected via $src after PATH refresh (major=$major) — skipping install." -ForegroundColor DarkGray
+        Write-Host "Java 21+ detected via $src after PATH refresh (major=$major) - skipping install." -ForegroundColor DarkGray
         Write-Host ("  Java: {0}" -f $line) -ForegroundColor DarkGray
         Write-Host ("  Path: {0}" -f $jpath) -ForegroundColor DarkGray
         return
