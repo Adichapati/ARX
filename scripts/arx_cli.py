@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import shutil
@@ -924,10 +925,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_tui(_: argparse.Namespace) -> int:
-    print('ARX TUI is not shipped yet in this phase.')
-    print('Use: arx style preview underground')
-    print('Planned next step: full animated TUI with service cards and live logs.')
-    return 0
+    mod = None
+    try:
+        mod = importlib.import_module('scripts.arx_tui')
+    except ModuleNotFoundError:
+        try:
+            mod = importlib.import_module('arx_tui')
+        except ModuleNotFoundError:
+            print('TUI dependencies missing or TUI module unavailable.')
+            print('Install deps with: ./.venv/bin/python -m pip install -r requirements.txt')
+            print('Then run: arx tui')
+            return 1
+
+    runner = getattr(mod, 'run_tui', None)
+    if not callable(runner):
+        print('TUI module is present but run_tui() is missing.')
+        return 1
+
+    return int(runner())
 
 
 def main() -> int:

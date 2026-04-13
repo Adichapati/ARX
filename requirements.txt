@@ -5,3 +5,5 @@ psutil
 mcstatus
 itsdangerous
 python-multipart
+rich>=13.7
+textual>=0.70

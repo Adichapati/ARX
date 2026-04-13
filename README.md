@@ -113,6 +113,7 @@ arx style status
 arx style set underground
 arx style preview underground
 arx tui
+python3 scripts/arx_tui.py --once   # debug single snapshot (no full-screen)
 arx version
 ```
 
