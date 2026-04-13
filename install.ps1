@@ -150,7 +150,7 @@ function Get-StateStyle {
 }
 
 function Resolve-InstallerStyle {
-    # Allowed styles: underground, dos, minimal, off
+    # Allowed styles: underground, classic, dos, minimal, off
     $style = ''
     if (-not [string]::IsNullOrWhiteSpace($env:ARX_STYLE)) {
         $style = $env:ARX_STYLE
@@ -160,11 +160,11 @@ function Resolve-InstallerStyle {
     }
 
     $style = ([string]$style).Trim().ToLowerInvariant()
-    if ($style -notin @('underground', 'dos', 'minimal', 'off')) {
+    if ($style -notin @('underground', 'classic', 'dos', 'minimal', 'off')) {
         $style = 'underground'
     }
 
-    if ($style -eq 'underground' -and -not (Test-UnicodeSupport)) {
+    if ($style -in @('underground', 'classic') -and -not (Test-UnicodeSupport)) {
         return 'minimal'
     }
 
@@ -182,8 +182,20 @@ function Safe-Clear {
 function Get-BannerLines {
     switch ($script:InstallerStyle) {
         'underground' {
-            # Windows PowerShell 5.1 treats BOM-less scripts as ANSI.
-            # Keep banner ASCII-safe so bootstrap execution never breaks on encoding.
+            # Isometric-flavored ARX logo -- ASCII-safe for PS 5.1.
+            # Full Unicode version lives in scripts/ui/ascii_assets.py.
+            return @(
+                '       _/_/_/    _/_/_/    _/      _/',
+                '      _/    _/  _/    _/    _/  _/',
+                '     _/_/_/_/  _/_/_/        _/',
+                '    _/    _/  _/    _/      _/',
+                '   _/    _/  _/    _/      _/',
+                '',
+                '   >> Agentic Runtime for eXecution <<'
+            )
+        }
+        'classic' {
+            # Legacy style (pre-overhaul).
             return @(
                 '    ___    ____  _  __',
                 '   /   |  / __ \| |/ /',
@@ -204,11 +216,10 @@ function Get-BannerLines {
         }
         'minimal' {
             return @(
-                '    ___    ____  _  __',
-                '   /   |  / __ \| |/ /',
-                '  / /| | / /_/ /   /',
-                ' / ___ |/ _, _/   |',
-                '/_/  |_/_/ |_/_/|_|'
+                '   _   ___ __  __',
+                '  /_\ | _ \\ \/ /',
+                ' / _ \|   / >  <',
+                '/_/ \_\_|_\/_/\_\'
             )
         }
         'off' {
@@ -216,30 +227,41 @@ function Get-BannerLines {
         }
         default {
             return @(
-                '    ___    ____  _  __',
-                '   /   |  / __ \| |/ /',
-                '  / /| | / /_/ /   /',
-                ' / ___ |/ _, _/   |',
-                '/_/  |_/_/ |_/_/|_|'
+                '       _/_/_/    _/_/_/    _/      _/',
+                '      _/    _/  _/    _/    _/  _/',
+                '     _/_/_/_/  _/_/_/        _/',
+                '    _/    _/  _/    _/      _/',
+                '   _/    _/  _/    _/      _/',
+                '',
+                '   >> Agentic Runtime for eXecution <<'
             )
         }
     }
 }
+
+# ---------------------------------------------------------------------------
+#  Themed color palette -- consistent cyan/white hierarchy, no rainbow.
+# ---------------------------------------------------------------------------
+$script:C_LOGO   = 'Cyan'
+$script:C_ACCENT = 'DarkCyan'
+$script:C_CHROME = 'DarkGray'
+$script:C_TEXT   = 'White'
+$script:C_OK     = 'Green'
+$script:C_WARN   = 'Yellow'
 
 function Show-Banner {
     Safe-Clear
     Write-Host ''
     $lines = Get-BannerLines
     if ($lines.Count -gt 0) {
-        $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta', 'Blue')
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            Write-Host $lines[$i] -ForegroundColor $colors[$i % $colors.Count]
+        foreach ($line in $lines) {
+            Write-Host $line -ForegroundColor $script:C_LOGO
         }
         Write-Host ''
     }
-    Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-    Write-Host '| Agentic Runtime for eXecution | Production Setup                |' -ForegroundColor White
-    Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
+    Write-Host '  .-------------------------------------------------------.' -ForegroundColor $script:C_CHROME
+    Write-Host '  |  A R X   //  Production Setup                         |' -ForegroundColor $script:C_TEXT
+    Write-Host "  '-------------------------------------------------------'" -ForegroundColor $script:C_CHROME
     Write-Host ''
 }
 
@@ -249,10 +271,9 @@ function Show-TitleAnimation {
     $lines = Get-BannerLines
     if ($lines.Count -eq 0) { return }
 
-    $colors = @('DarkCyan', 'Cyan', 'Green', 'Yellow', 'Magenta', 'Blue')
     $maxLen = ($lines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
 
-    for ($col = 1; $col -le $maxLen; $col += 2) {
+    for ($col = 1; $col -le $maxLen; $col += 3) {
         Clear-Host
         Write-Host ''
         for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -260,62 +281,61 @@ function Show-TitleAnimation {
             $n = [Math]::Min($col, $line.Length)
             $left = $line.Substring(0, $n)
             $pad = ' ' * ($maxLen - $n)
-            Write-Host ($left + $pad) -ForegroundColor $colors[$i % $colors.Count]
+            Write-Host ($left + $pad) -ForegroundColor $script:C_LOGO
         }
         Write-Host ''
-        Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-        Write-Host '| Agentic Runtime for eXecution | Production Setup                |' -ForegroundColor White
-        Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-        Start-Sleep -Milliseconds 35
+        Write-Host '  .-------------------------------------------------------.' -ForegroundColor $script:C_CHROME
+        Write-Host '  |  A R X   //  Production Setup                         |' -ForegroundColor $script:C_TEXT
+        Write-Host "  '-------------------------------------------------------'" -ForegroundColor $script:C_CHROME
+        Start-Sleep -Milliseconds 25
     }
 }
 
 function Show-Transition([string]$Text) {
     if ($Yes) {
-        Write-Host "[ARX] $Text"
+        Write-Host "  [ARX] $Text" -ForegroundColor $script:C_ACCENT
         return
     }
     foreach ($d in @('.', '..', '...')) {
-        Write-Host "[ARX] $Text$d" -ForegroundColor Yellow
-        Start-Sleep -Milliseconds 110
+        Write-Host "`r  [ARX] $Text$d   " -ForegroundColor $script:C_ACCENT -NoNewline
+        Start-Sleep -Milliseconds 90
     }
+    Write-Host ''
 }
 
 function Show-IntroAnim {
     if ($Yes -or -not $script:CanUseFancyUi) { return }
-    $bars = @(
-        @{P=10; B='#####.............................................'},
-        @{P=24; B='############......................................'},
-        @{P=38; B='###################...............................'},
-        @{P=52; B='##########################........................'},
-        @{P=66; B='#################################.................'},
-        @{P=80; B='########################################..........'},
-        @{P=100; B='##################################################'}
-    )
-    foreach ($x in $bars) {
-        Write-Host ("[ARX] Initializing UI [{0}] {1,3}%" -f $x.B, $x.P) -ForegroundColor DarkCyan
-        Start-Sleep -Milliseconds 70
+    $width = 40
+    $stages = @(4, 10, 16, 22, 28, 34, 40)
+    foreach ($fill in $stages) {
+        $bar = ('=' * $fill) + (' ' * ($width - $fill))
+        $pct = [int](($fill / $width) * 100)
+        Write-Host ("`r  Initializing  [{0}]  {1,3}%" -f $bar, $pct) -ForegroundColor $script:C_ACCENT -NoNewline
+        Start-Sleep -Milliseconds 55
     }
+    Write-Host ''
 }
 
 function Show-Box([string]$Title) {
     Write-Host ''
-    Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
-    Write-Host "| $Title" -ForegroundColor White
-    Write-Host '+------------------------------------------------------------------+' -ForegroundColor DarkGray
+    Write-Host "  .--- $Title " -ForegroundColor $script:C_CHROME -NoNewline
+    $pad = 56 - $Title.Length
+    if ($pad -lt 1) { $pad = 1 }
+    Write-Host ('-' * $pad + '.') -ForegroundColor $script:C_CHROME
 }
 
 function Show-AsciiDivider([string]$Tag) {
-    $art = switch ($Tag) {
-        'port'    { @('   +-----------+','   |  PORT CFG |','   +-----------+') }
-        'trigger' { @('   (o_o)  say the magic word','    \  gemma  /','     \______/') }
-        'model'   { @('   [ GEMMA CORE ]','   > model select <') }
-        'ctx'     { @('   [########      ]','   context tuning') }
-        'temp'    { @('   ~ creativity dial ~','   low <----> high') }
-        'admin'   { @('   +------------+','   |  ADMIN KEY |','   +------------+') }
-        default   { @('   +-----------+','   |  ARX SET  |','   +-----------+') }
+    $label = switch ($Tag) {
+        'port'    { 'NETWORK' }
+        'trigger' { 'AI AGENT' }
+        'model'   { 'MODEL' }
+        'ctx'     { 'CONTEXT' }
+        'temp'    { 'TEMPERATURE' }
+        'admin'   { 'CREDENTIALS' }
+        default   { 'CONFIGURE' }
     }
-    foreach ($line in $art) { Write-Host $line -ForegroundColor DarkGray }
+    Write-Host "  |  $label" -ForegroundColor $script:C_ACCENT
+    Write-Host ''
 }
 
 function Select-FromList(
@@ -329,9 +349,9 @@ function Select-FromList(
         Show-Banner
         Show-Box $Title
         Show-AsciiDivider $ArtTag
-        Write-Host $Hint -ForegroundColor DarkGray
+        Write-Host "  $Hint" -ForegroundColor $script:C_CHROME
         for ($i = 0; $i -lt $Options.Count; $i++) {
-            Write-Host ("  [{0}] {1}" -f ($i + 1), $Options[$i]) -ForegroundColor Gray
+            Write-Host ("    [{0}] {1}" -f ($i + 1), $Options[$i]) -ForegroundColor $script:C_TEXT
         }
         while ($true) {
             $raw = Read-Host ("Choose 1-{0} (default {1})" -f $Options.Count, ($DefaultIndex + 1))
@@ -353,14 +373,14 @@ function Select-FromList(
         Show-Banner
         Show-Box $Title
         Show-AsciiDivider $ArtTag
-        Write-Host $Hint -ForegroundColor DarkGray
+        Write-Host "  $Hint" -ForegroundColor $script:C_CHROME
         Write-Host ''
 
         for ($i=0; $i -lt $Options.Count; $i++) {
             if ($i -eq $index) {
-                Write-Host ("  > {0}" -f $Options[$i]) -ForegroundColor Black -BackgroundColor Cyan
+                Write-Host ("    > {0}" -f $Options[$i]) -ForegroundColor Black -BackgroundColor Cyan
             } else {
-                Write-Host ("    {0}" -f $Options[$i]) -ForegroundColor Gray
+                Write-Host ("      {0}" -f $Options[$i]) -ForegroundColor $script:C_TEXT
             }
         }
 
@@ -406,12 +426,10 @@ function Prompt-TextWithArt([string]$Title, [string]$ArtTag, [string]$PromptText
 }
 
 function Step([int]$Index, [int]$Total, [string]$Name, [scriptblock]$Action) {
-    Write-Host ("[{0}/{1}] {2}" -f $Index, $Total, $Name)
-    if (-not $Yes) {
-        Write-Host ("   ... {0}" -f $Name) -ForegroundColor DarkGray
-    }
+    $bar = '=' * $Index + '-' * ($Total - $Index)
+    Write-Host ("  [{0}] [{1}/{2}] {3}" -f $bar, $Index, $Total, $Name) -ForegroundColor $script:C_ACCENT
     & $Action
-    Write-Host ("   [OK] {0}" -f $Name) -ForegroundColor Green
+    Write-Host ("  [{0}] {1}" -f '+', $Name) -ForegroundColor $script:C_OK
 }
 
 function Require-Command([string]$Name, [string]$Hint) {
@@ -534,7 +552,14 @@ function Get-JavaVersionInfo {
         $src = ''
 
         try {
+            # java -version writes to stderr, which produces ErrorRecords.
+            # Under $ErrorActionPreference='Stop' that throws before we can
+            # read the output.  Temporarily lower to 'Continue' so the
+            # 2>&1 redirect works as intended.
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
             $vline = (& $javaPath -version 2>&1 | Select-Object -First 1)
+            $ErrorActionPreference = $prevEAP
             if ($vline) {
                 $s = [string]$vline
                 $line = $s
@@ -545,7 +570,9 @@ function Get-JavaVersionInfo {
             }
 
             if ($major -eq 0) {
+                $ErrorActionPreference = 'Continue'
                 $vline2 = (& $javaPath --version 2>&1 | Select-Object -First 1)
+                $ErrorActionPreference = $prevEAP
                 if ($vline2) {
                     $s2 = [string]$vline2
                     $line = $s2
@@ -555,6 +582,7 @@ function Get-JavaVersionInfo {
                 }
             }
         } catch {
+            $ErrorActionPreference = $prevEAP
         }
 
         if ($major -gt [int]$result.major) {
@@ -958,15 +986,15 @@ try {
 
     Show-Banner
     Show-Box 'Setup Summary'
-    Write-Host "  Platform         : windows" -ForegroundColor Cyan
-    Write-Host "  Dashboard port   : $Port" -ForegroundColor Cyan
-    Write-Host "  Trigger          : $Trigger" -ForegroundColor Cyan
-    Write-Host "  Gemma model      : $Model" -ForegroundColor Cyan
-    Write-Host "  Temperature      : $Temperature" -ForegroundColor Cyan
-    Write-Host "  Minecraft ver    : $McVersion" -ForegroundColor Cyan
-    Write-Host "  Playit enabled   : $PlayitEnabled" -ForegroundColor Cyan
-    if ($PlayitUrl) { Write-Host "  Playit URL       : $PlayitUrl" -ForegroundColor Cyan }
-    Write-Host "  Admin user       : $AdminUser" -ForegroundColor Cyan
+    Write-Host "    Platform         : windows" -ForegroundColor $script:C_TEXT
+    Write-Host "    Dashboard port   : $Port" -ForegroundColor $script:C_TEXT
+    Write-Host "    Trigger          : $Trigger" -ForegroundColor $script:C_TEXT
+    Write-Host "    Gemma model      : $Model" -ForegroundColor $script:C_TEXT
+    Write-Host "    Temperature      : $Temperature" -ForegroundColor $script:C_TEXT
+    Write-Host "    Minecraft ver    : $McVersion" -ForegroundColor $script:C_TEXT
+    Write-Host "    Playit enabled   : $PlayitEnabled" -ForegroundColor $script:C_TEXT
+    if ($PlayitUrl) { Write-Host "    Playit URL       : $PlayitUrl" -ForegroundColor $script:C_TEXT }
+    Write-Host "    Admin user       : $AdminUser" -ForegroundColor $script:C_TEXT
 
     Show-Transition 'Running installation pipeline'
 
@@ -1044,16 +1072,18 @@ try {
     }
 
     Show-Box 'Install Complete'
-    Write-Host "  Dashboard URL : http://localhost:$Port/"
-    Write-Host "  Start command : arx start"
-    Write-Host "  Help command  : arx help"
-    Write-Host "  Status        : arx status"
-    Write-Host "  Shutdown      : arx shutdown"
-    Write-Host "  Tunnel setup  : arx tunnel setup"
-    Write-Host "  Tunnel status : arx tunnel status"
-    Write-Host "  AI context    : arx ai set-context 4096"
-    Write-Host "  Launcher path : $env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\arx.bat"
-    Write-Host "  Gemma trigger : $Trigger"
+    Write-Host ''
+    Write-Host "    Dashboard URL : http://localhost:$Port/" -ForegroundColor $script:C_OK
+    Write-Host "    Start command : arx start" -ForegroundColor $script:C_TEXT
+    Write-Host "    Help command  : arx help" -ForegroundColor $script:C_TEXT
+    Write-Host "    Status        : arx status" -ForegroundColor $script:C_TEXT
+    Write-Host "    Shutdown      : arx shutdown" -ForegroundColor $script:C_TEXT
+    Write-Host "    Tunnel setup  : arx tunnel setup" -ForegroundColor $script:C_TEXT
+    Write-Host "    Tunnel status : arx tunnel status" -ForegroundColor $script:C_TEXT
+    Write-Host "    AI context    : arx ai set-context 4096" -ForegroundColor $script:C_TEXT
+    Write-Host "    Launcher      : $env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\arx.bat" -ForegroundColor $script:C_CHROME
+    Write-Host "    Gemma trigger : $Trigger" -ForegroundColor $script:C_ACCENT
+    Write-Host ''
     Show-Transition 'All done'
     exit 0
 }

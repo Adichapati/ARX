@@ -144,7 +144,7 @@ installer_state_style() {
 }
 
 resolve_installer_style() {
-  # Allowed style values: underground|dos|minimal|off
+  # Allowed style values: underground|classic|dos|minimal|off
   local style="${ARX_STYLE:-}"
   if [[ -z "$style" ]]; then
     style="$(installer_state_style)"
@@ -152,11 +152,11 @@ resolve_installer_style() {
   style="${style,,}"
 
   case "$style" in
-    underground|dos|minimal|off) ;;
+    underground|classic|dos|minimal|off) ;;
     *) style="underground" ;;
   esac
 
-  if [[ "$style" == "underground" ]] && ! supports_unicode; then
+  if [[ "$style" == "underground" || "$style" == "classic" ]] && ! supports_unicode; then
     style="minimal"
   fi
 
@@ -167,6 +167,21 @@ installer_logo() {
   local style="$1"
   case "$style" in
     underground)
+      cat <<'EOF'
+      ___           ___           ___
+     /\  \         /\  \         /\__\
+    /::\  \       /::\  \       /:/  /
+   /:/\:\  \     /:/\:\  \     /:/__/
+  /::\~\:\  \   /::\~\:\  \   /::\  \
+ /:/\:\ \:\__\ /:/\:\ \:\__\ /:/\:\  \
+ \/__\:\/:/  / \/_|::\/:/  / \/__\:\  \
+      \::/  /     |:|::/  /       \:\  \
+      /:/  /      |:|\/__/        /:/  /
+     /:/  /       |:|  |         /:/  /
+     \/__/         \|__|         \/__/
+EOF
+      ;;
+    classic)
       cat <<'EOF'
  █████╗ ██████╗ ██╗  ██╗
 ██╔══██╗██╔══██╗╚██╗██╔╝
@@ -199,11 +214,17 @@ EOF
       ;;
     *)
       cat <<'EOF'
-    ___    ____  _  __
-   /   |  / __ \| |/ /
-  / /| | / /_/ /   /
- / ___ |/ _, _/   |
-/_/  |_/_/ |_/_/|_|
+      ___           ___           ___
+     /\  \         /\  \         /\__\
+    /::\  \       /::\  \       /:/  /
+   /:/\:\  \     /:/\:\  \     /:/__/
+  /::\~\:\  \   /::\~\:\  \   /::\  \
+ /:/\:\ \:\__\ /:/\:\ \:\__\ /:/\:\  \
+ \/__\:\/:/  / \/_|::\/:/  / \/__\:\  \
+      \::/  /     |:|::/  /       \:\  \
+      /:/  /      |:|\/__/        /:/  /
+     /:/  /       |:|  |         /:/  /
+     \/__/         \|__|         \/__/
 EOF
       ;;
   esac
@@ -218,63 +239,26 @@ banner() {
   echo
   installer_logo "$INSTALLER_STYLE"
   echo
-  cat <<'EOF'
-+------------------------------------------------------------------+
-| Agentic Runtime for eXecution | Production Setup                |
-+------------------------------------------------------------------+
-EOF
+  echo "  ┌───────────────────────────────────────────────────────┐"
+  echo "  │  A R X  ╱╱  Production Setup                         │"
+  echo "  └───────────────────────────────────────────────────────┘"
+  echo
 }
 
 ascii_divider() {
   local tag="${1:-default}"
+  local label
   case "$tag" in
-    port)
-      cat <<'EOF'
-   +-----------+
-   |  PORT CFG |
-   +-----------+
-EOF
-      ;;
-    trigger)
-      cat <<'EOF'
-   (o_o)  say the magic word
-    \  gemma  /
-     \______/
-EOF
-      ;;
-    model)
-      cat <<'EOF'
-   [ GEMMA CORE ]
-   > model select <
-EOF
-      ;;
-    ctx)
-      cat <<'EOF'
-   [########      ]
-   context tuning
-EOF
-      ;;
-    temp)
-      cat <<'EOF'
-   ~ creativity dial ~
-   low <----> high
-EOF
-      ;;
-    admin)
-      cat <<'EOF'
-   +------------+
-   |  ADMIN KEY |
-   +------------+
-EOF
-      ;;
-    *)
-      cat <<'EOF'
-   +-----------+
-   |  ARX SET  |
-   +-----------+
-EOF
-      ;;
+    port)    label="NETWORK" ;;
+    trigger) label="AI AGENT" ;;
+    model)   label="MODEL" ;;
+    ctx)     label="CONTEXT" ;;
+    temp)    label="TEMPERATURE" ;;
+    admin)   label="CREDENTIALS" ;;
+    *)       label="CONFIGURE" ;;
   esac
+  echo "  │  $label"
+  echo
 }
 
 prompt_with_art() {
@@ -305,10 +289,11 @@ select_from_list() {
     ascii_divider "$tag"
     local i
     for i in "${!options[@]}"; do
-      printf '  [%d] %s\n' "$((i + 1))" "${options[$i]}"
+      printf '    [%d] %s\n' "$((i + 1))" "${options[$i]}"
     done
+    echo
     while true; do
-      read -rp "Choose 1-${#options[@]} (default $((default_index + 1))): " REPLY
+      read -rp "    Choose 1-${#options[@]} (default $((default_index + 1))): " REPLY
       if [[ -z "$REPLY" ]]; then
         printf '%s' "${options[$default_index]}"
         return 0
@@ -317,7 +302,7 @@ select_from_list() {
         printf '%s' "${options[$((REPLY - 1))]}"
         return 0
       fi
-      echo "Invalid selection, try again."
+      echo "    Invalid selection, try again."
     done
   fi
 
@@ -325,15 +310,14 @@ select_from_list() {
     banner
     box "$title"
     ascii_divider "$tag"
-    echo "Use Up/Down arrows and Enter to choose."
-    echo
+    printf "    \033[90mUp/Down arrows + Enter to choose\033[0m\n\n"
 
     local i
     for i in "${!options[@]}"; do
       if (( i == index )); then
-        printf '  > %s\n' "${options[$i]}"
+        printf '    \033[36m› %s\033[0m\n' "${options[$i]}"
       else
-        printf '    %s\n' "${options[$i]}"
+        printf '      %s\n' "${options[$i]}"
       fi
     done
 
@@ -362,11 +346,12 @@ intro_animation() {
   if [[ "$UI_ENABLED" != true ]]; then
     return
   fi
-  local i bar
-  for i in 10 24 38 52 66 80 100; do
-    bar=$(printf '%*s' $((i/2)) '' | tr ' ' '█')
-    printf "\r[ARX] Initializing UI [% -50s] %3d%%" "$bar" "$i"
-    sleep 0.08
+  local i fill width=40
+  for i in 4 10 16 22 28 34 40; do
+    fill=$(printf '%*s' "$i" '' | tr ' ' '━')
+    local pad=$(printf '%*s' "$((width - i))" '' | tr ' ' '╌')
+    printf "\r  Initializing  [%s%s]  %3d%%" "$fill" "$pad" "$((i * 100 / width))"
+    sleep 0.05
   done
   printf "\n"
 }
@@ -374,9 +359,10 @@ intro_animation() {
 box() {
   local title="$1"
   echo
-  echo "╔══════════════════════════════════════════════════════════════╗"
-  printf "║ %-60s ║\n" "$title"
-  echo "╚══════════════════════════════════════════════════════════════╝"
+  printf "  ┌─── %s " "$title"
+  local pad=$((54 - ${#title}))
+  if (( pad < 1 )); then pad=1; fi
+  printf '%*s\n' "$pad" '' | tr ' ' '─'
 }
 
 transition() {
@@ -385,12 +371,12 @@ transition() {
     local dots=""
     for _ in 1 2 3; do
       dots+="."
-      printf "\r[ARX] %s%s" "$text" "$dots"
-      sleep 0.12
+      printf "\r  [ARX] %s%s   " "$text" "$dots"
+      sleep 0.09
     done
     printf "\r%-72s\r" ""
   fi
-  echo "[ARX] $text"
+  echo "  [ARX] $text"
 }
 
 spinner_run() {
@@ -399,7 +385,7 @@ spinner_run() {
 
   local tmp pid frames i
   tmp="$(mktemp)"
-  frames='|/-\\'
+  frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
   "$@" >"$tmp" 2>&1 &
   pid=$!
@@ -407,8 +393,8 @@ spinner_run() {
 
   if [[ "$UI_ENABLED" == true ]]; then
     while kill -0 "$pid" 2>/dev/null; do
-      local c="${frames:i%4:1}"
-      printf "\r  %s %s" "$c" "$label"
+      local c="${frames:i%10:1}"
+      printf "\r    %s %s" "$c" "$label"
       i=$((i + 1))
       sleep 0.08
     done
@@ -423,9 +409,9 @@ spinner_run() {
 
   if [[ $rc -eq 0 ]]; then
     if [[ "$UI_ENABLED" == true ]]; then
-      printf "  ✓ %s\n" "$label"
+      printf "    ✓ %s\n" "$label"
     else
-      echo "[ARX] $label: ok"
+      echo "  [ARX] $label: ok"
     fi
     rm -f "$tmp"
     return 0
@@ -439,7 +425,11 @@ spinner_run() {
 
 tick_step() {
   STEP_CUR=$((STEP_CUR + 1))
-  printf "[%02d/%02d] %s\n" "$STEP_CUR" "$STEP_TOTAL" "$1"
+  local bar filled remaining
+  filled=$((STEP_CUR))
+  remaining=$((STEP_TOTAL - STEP_CUR))
+  bar="$(printf '%*s' "$filled" '' | tr ' ' '━')$(printf '%*s' "$remaining" '' | tr ' ' '╌')"
+  printf "  [%s] [%02d/%02d] %s\n" "$bar" "$STEP_CUR" "$STEP_TOTAL" "$1"
 }
 
 install_pkg_linux() {
@@ -803,17 +793,18 @@ validate_inputs() {
 
 show_summary() {
   box "Setup Summary"
-  echo "  Platform         : $PLATFORM"
-  echo "  Dashboard port   : $DASHBOARD_PORT"
-  echo "  Trigger          : $AGENT_TRIGGER"
-  echo "  Gemma model      : $GEMMA_MODEL"
-  echo "  Temperature      : $GEMMA_TEMPERATURE"
-  echo "  Minecraft ver    : $MC_VERSION"
-  echo "  Playit enabled   : $PLAYIT_ENABLED"
+  printf "    %-18s %s\n" "Platform" "$PLATFORM"
+  printf "    %-18s %s\n" "Dashboard port" "$DASHBOARD_PORT"
+  printf "    %-18s %s\n" "Trigger" "$AGENT_TRIGGER"
+  printf "    %-18s %s\n" "Gemma model" "$GEMMA_MODEL"
+  printf "    %-18s %s\n" "Temperature" "$GEMMA_TEMPERATURE"
+  printf "    %-18s %s\n" "Minecraft ver" "$MC_VERSION"
+  printf "    %-18s %s\n" "Playit enabled" "$PLAYIT_ENABLED"
   if [[ -n "$PLAYIT_URL" ]]; then
-    echo "  Playit URL       : $PLAYIT_URL"
+    printf "    %-18s %s\n" "Playit URL" "$PLAYIT_URL"
   fi
-  echo "  Admin user       : $ARX_ADMIN_USER"
+  printf "    %-18s %s\n" "Admin user" "$ARX_ADMIN_USER"
+  echo
 }
 
 setup_python() {
@@ -915,21 +906,24 @@ EOF
   fi
 
   box "Install Complete"
-  echo "  Dashboard URL : http://localhost:${DASHBOARD_PORT}/"
-  echo "  Start command : arx start"
-  echo "  Help command  : arx help"
-  echo "  Status        : arx status"
-  echo "  Shutdown      : arx shutdown"
-  echo "  Tunnel setup  : arx tunnel setup"
-  echo "  Tunnel status : arx tunnel status"
-  echo "  AI context    : arx ai set-context 4096"
+  echo
+  printf "    \033[32m%s\033[0m\n" "http://localhost:${DASHBOARD_PORT}/"
+  echo
+  printf "    %-18s %s\n" "Start" "arx start"
+  printf "    %-18s %s\n" "Help" "arx help"
+  printf "    %-18s %s\n" "Status" "arx status"
+  printf "    %-18s %s\n" "Shutdown" "arx shutdown"
+  printf "    %-18s %s\n" "Tunnel setup" "arx tunnel setup"
+  printf "    %-18s %s\n" "Tunnel status" "arx tunnel status"
+  printf "    %-18s %s\n" "AI context" "arx ai set-context 4096"
   if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-    echo "  ARX launcher  : $HOME/.local/bin/arx"
+    printf "    %-18s %s\n" "ARX launcher" "$HOME/.local/bin/arx"
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-      echo "  PATH note     : add ~/.local/bin to PATH to run 'arx' directly"
+      printf "    %-18s %s\n" "PATH note" "add ~/.local/bin to PATH"
     fi
   fi
-  echo "  Gemma trigger : ${AGENT_TRIGGER}"
+  printf "    %-18s %s\n" "Gemma trigger" "${AGENT_TRIGGER}"
+  echo
 }
 
 run_step() {

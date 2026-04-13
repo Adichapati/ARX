@@ -280,10 +280,17 @@ Examples:
                     return {'type': 'command', 'command': explicit, 'say': f'running: {explicit}'}
             return {'type': 'chat', 'say': "Model backend connection issue. Retry in a moment."}
 
-        # parse OpenAI-like response
+        # parse OpenAI-like or native Ollama response
         try:
             data = json.loads(raw)
-            content = data['choices'][0]['message']['content']
+            # OpenAI-compatible format (Ollama with /v1/ prefix)
+            if 'choices' in data:
+                content = data['choices'][0]['message']['content']
+            # Native Ollama /api/chat format
+            elif 'message' in data:
+                content = data['message']['content']
+            else:
+                raise KeyError('unrecognized response schema')
         except Exception:
             return {'type': 'chat', 'say': "I couldn't parse the AI response. Try rephrasing."}
 
@@ -374,15 +381,16 @@ Examples:
                             cmd = cmd[1:].strip()
 
                         # normalize common player-target aliases/placeholders from AI output
-                        cmd = re.sub(r'\b@p\b', user, cmd)
-                        cmd = re.sub(r'\b(me|myself|self)\b', user, cmd, flags=re.IGNORECASE)
+                        # Use lambda replacements to avoid backreference interpretation in player names
+                        cmd = re.sub(r'\b@p\b', lambda m: user, cmd)
+                        cmd = re.sub(r'\b(me|myself|self)\b', lambda m: user, cmd, flags=re.IGNORECASE)
                         # Replace common LLM placeholders like <playername>, <player>, {player}
-                        cmd = re.sub(r'(?i)<\s*player\s*name\s*>', user, cmd)
-                        cmd = re.sub(r'(?i)<\s*player\s*>', user, cmd)
-                        cmd = re.sub(r'(?i)\{\s*player\s*name\s*\}', user, cmd)
-                        cmd = re.sub(r'(?i)\{\s*player\s*\}', user, cmd)
-                        cmd = re.sub(r'(?i)\bplayername\b', user, cmd)
-                        cmd = re.sub(r'(?i)\bplayer_name\b', user, cmd)
+                        cmd = re.sub(r'(?i)<\s*player\s*name\s*>', lambda m: user, cmd)
+                        cmd = re.sub(r'(?i)<\s*player\s*>', lambda m: user, cmd)
+                        cmd = re.sub(r'(?i)\{\s*player\s*name\s*\}', lambda m: user, cmd)
+                        cmd = re.sub(r'(?i)\{\s*player\s*\}', lambda m: user, cmd)
+                        cmd = re.sub(r'(?i)\bplayername\b', lambda m: user, cmd)
+                        cmd = re.sub(r'(?i)\bplayer_name\b', lambda m: user, cmd)
 
                         # normalize dimension wording typo from AI
                         cmd = cmd.replace('minecraft:nether', 'minecraft:the_nether')

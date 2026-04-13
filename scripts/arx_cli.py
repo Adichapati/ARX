@@ -800,7 +800,7 @@ def cmd_style(args: argparse.Namespace) -> int:
 
     if action == 'set':
         if not name:
-            print('usage: arx style set <underground|dos|minimal|off>', file=sys.stderr)
+            print('usage: arx style set <underground|classic|dos|minimal|off>', file=sys.stderr)
             return 1
         try:
             chosen = set_style(ROOT, name)

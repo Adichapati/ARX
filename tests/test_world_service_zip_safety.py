@@ -111,7 +111,8 @@ class WorldServiceZipSafetyTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "Unsafe zip archive")
-        self.assertEqual(result["details"]["member"], "world\\..\\outside.txt")
+        # zipfile normalises backslashes to forward slashes on read
+        self.assertIn(result["details"]["member"], ("world\\..\\outside.txt", "world/../outside.txt"))
         self.assertEqual(result["details"]["reason"], "Path traversal is not allowed")
         self.assertFalse((self.root / "outside.txt").exists())
 
@@ -293,7 +294,8 @@ class WorldServiceZipSafetyTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "Unsafe zip archive")
-        self.assertEqual(result["details"]["member"], "world\\..\\outside.txt")
+        # zipfile normalises backslashes to forward slashes on read
+        self.assertIn(result["details"]["member"], ("world\\..\\outside.txt", "world/../outside.txt"))
         self.assertEqual(result["details"]["reason"], "Path traversal is not allowed")
         self.assertFalse((self.root / "outside.txt").exists())
 

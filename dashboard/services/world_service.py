@@ -327,22 +327,26 @@ class WorldService:
             except Exception:
                 pass
 
+        validation_result = None
         try:
             with zipfile.ZipFile(tmp_zip, 'r') as zf:
                 unsafe = WorldService._validate_zip_members(zf, MINECRAFT_DIR)
                 if unsafe:
-                    _cleanup_tmp_zip()
-                    return unsafe
-                test = zf.testzip()
-                if test:
-                    _cleanup_tmp_zip()
-                    return WorldService._corrupt_archive_error(test)
+                    validation_result = unsafe
+                else:
+                    test = zf.testzip()
+                    if test:
+                        validation_result = WorldService._corrupt_archive_error(test)
         except zipfile.BadZipFile:
             _cleanup_tmp_zip()
             return WorldService._invalid_archive_error('Bad zip file')
         except Exception as exc:
             _cleanup_tmp_zip()
             return WorldService._invalid_archive_error(str(exc) or 'Archive open/read failure')
+
+        if validation_result:
+            _cleanup_tmp_zip()
+            return validation_result
 
         was_running = ServerService.is_running()
         if was_running:

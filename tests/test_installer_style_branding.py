@@ -16,7 +16,7 @@ class InstallerStyleBrandingTests(unittest.TestCase):
         self.assertIn("supports_unicode()", text)
         self.assertIn("ARX_STYLE", text)
         self.assertIn("state/arx_ui.json", text)
-        self.assertIn('underground|dos|minimal|off', text)
+        self.assertIn('underground|classic|dos|minimal|off', text)
         self.assertIn('█████╗ ██████╗ ██╗  ██╗', text)
         self.assertIn('______   ______  __   __', text)
 
