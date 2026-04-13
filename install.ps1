@@ -918,8 +918,8 @@ function Install-ArxLauncher {
     $launcherLines = @(
         '@echo off',
         'setlocal',
-        "set \"ARX_PY=$pythonPath\"",
-        "set \"ARX_CLI=$cliPath\"",
+        ('set "ARX_PY={0}"' -f $pythonPath),
+        ('set "ARX_CLI={0}"' -f $cliPath),
         'if not exist "%ARX_PY%" (',
         '  echo [ARX][ERROR] Python runtime not found: %ARX_PY%',
         '  exit /b 1',
