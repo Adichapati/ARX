@@ -1,47 +1,44 @@
-name: Release
+name: Build and Publish Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
+  workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build-and-publish:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure scripts are executable
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          chmod +x ./scripts/generate_release_artifacts.sh || true
 
       - name: Build release artifacts
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME}"
-          mkdir -p dist
+          # Resolve version from tag (GITHUB_REF will be refs/tags/<tag>)
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "Building artifacts for version: $VERSION"
+          ./scripts/generate_release_artifacts.sh "$VERSION"
+          ls -la dist
 
-          cp install.sh "dist/arx-${VERSION}-install.sh"
-          cp install.bat "dist/arx-${VERSION}-install.bat"
-
-          git archive --format=tar.gz --prefix="arx-${VERSION}/" -o "dist/arx-${VERSION}-source.tar.gz" HEAD
-
-      - name: Generate SHA256 checksums
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum * > SHA256SUMS
-
-      - name: Upload workflow artifact (backup)
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub release and upload assets
+        uses: ncipollo/release-action@v1
         with:
-          name: arx-release-${{ github.ref_name }}
-          path: dist/
+          tag: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            Automated release created by CI. Artifacts included from dist/.
+          files: dist/*
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*
-          generate_release_notes: true
-          draft: false
-          prerelease: true
+      - name: Done
+        run: echo "Release published for tag ${{ github.ref_name }}"
