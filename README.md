@@ -1,3 +1,12 @@
+```text
+ █████╗ ██████╗ ██╗  ██╗
+██╔══██╗██╔══██╗╚██╗██╔╝
+███████║██████╔╝ ╚███╔╝ 
+██╔══██║██╔══██╗ ██╔██╗ 
+██║  ██║██║  ██║██╔╝ ██╗
+╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+```
+
 # ARX — Agentic Runtime for eXecution
 
 ARX is a local-first Minecraft operations platform with a production-minded installer, browser dashboard, and global `arx` CLI.
