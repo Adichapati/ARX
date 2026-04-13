@@ -32,7 +32,8 @@ class InstallerStyleBrandingTests(unittest.TestCase):
         self.assertIn("dos", text)
         self.assertIn("minimal", text)
         self.assertIn("off", text)
-        self.assertIn("█████╗ ██████╗ ██╗  ██╗", text)
+        # Keep Windows banner ASCII-safe to avoid encoding parse failures in PS 5.1 bootstrap mode.
+        self.assertIn("    ___    ____  _  __", text)
         self.assertIn("______   ______  __   __", text)
 
 
