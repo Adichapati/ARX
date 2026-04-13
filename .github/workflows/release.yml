@@ -38,6 +38,7 @@ jobs:
           name: Release ${{ github.ref_name }}
           body: |
             Automated release created by CI. Artifacts included from dist/.
+            Includes the lean bootstrap runtime bundle (dist/arx-runtime.zip) used by the hosted installer.
           files: dist/*
 
       - name: Done

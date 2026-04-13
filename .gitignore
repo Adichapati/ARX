@@ -13,6 +13,10 @@ venv/
 *.pid
 data/
 dist/
+install_BACKUP_*.ps1
+install_BASE_*.ps1
+install_LOCAL_*.ps1
+install_REMOTE_*.ps1
 state/arx_config.json
 state/op_assist_state.json
 app/minecraft_server/server.jar

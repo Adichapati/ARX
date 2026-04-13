@@ -6,7 +6,7 @@ Use this guide to verify installer artifacts before running them.
 
 - `https://arxmc.studio/install.sh`
 - `https://arxmc.studio/install.ps1`
-- `https://arxmc.studio/arx-runtime.zip`
+- `https://arxmc.studio/arx-runtime.zip` (lean bootstrap runtime bundle)
 - `https://arxmc.studio/checksums.txt`
 
 GitHub fallback:

@@ -52,10 +52,13 @@ Non-interactive example:
 
 ### Windows
 
-PowerShell bootstrap installer:
+Open Windows PowerShell first, then paste this bootstrap block:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://arxmc.studio/install.ps1 | iex"
+$installer = Join-Path $env:TEMP "arx-install.ps1"
+Invoke-RestMethod 'https://arxmc.studio/install.ps1' -OutFile $installer
+& $installer
+Remove-Item -Force $installer
 ```
 
 By default, Windows bootstrap installs ARX into:
