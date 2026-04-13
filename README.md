@@ -109,6 +109,10 @@ arx tunnel setup
 arx tunnel status
 arx tunnel open
 arx tunnel stop
+arx style status
+arx style set underground
+arx style preview underground
+arx tui
 arx version
 ```
 

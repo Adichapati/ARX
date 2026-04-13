@@ -12,6 +12,11 @@ import time
 import webbrowser
 from pathlib import Path
 
+try:
+    from scripts.ui.style_engine import resolve_style, set_style, style_pack
+except Exception:  # pragma: no cover - fallback for direct script execution
+    from ui.style_engine import resolve_style, set_style, style_pack
+
 import psutil
 import urllib.error
 import urllib.request
@@ -488,7 +493,16 @@ def _stop_playit() -> tuple[bool, str]:
     return True, f'stopped {n} process(es)'
 
 
+def _print_brand_header(explicit_style: str | None = None) -> None:
+    style_name = resolve_style(ROOT, explicit=explicit_style)
+    pack = style_pack(ROOT, explicit=style_name)
+    if pack.arx_logo:
+        print(pack.arx_logo)
+        print('')
+
+
 def cmd_help(_: argparse.Namespace) -> int:
+    _print_brand_header()
     print('ARX command help\n')
     print('  arx help                    Show this help menu')
     print('  arx start [target]          Start services (all|dashboard|ollama|server); default all')
@@ -504,6 +518,10 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx tunnel status           Show Playit tunnel status + configured URL')
     print('  arx tunnel open             Open configured Playit address or playit.gg')
     print('  arx tunnel stop             Stop Playit tunnel agent')
+    print('  arx style status            Show active terminal style')
+    print('  arx style set <name>        Set style (underground|dos|minimal|off)')
+    print('  arx style preview [name]    Preview ARX + DELUSION sample art')
+    print('  arx tui                     Launch modern TUI (phase placeholder)')
     print('  arx version                 Show ARX CLI version')
     print('')
     print('examples:')
@@ -512,10 +530,12 @@ def cmd_help(_: argparse.Namespace) -> int:
     print('  arx start ollama            # only start ollama')
     print('  arx start server            # only start minecraft server')
     print('  arx tunnel setup            # launch playit and claim tunnel')
+    print('  arx style preview           # preview underground branding')
     return 0
 
 
 def cmd_status(_: argparse.Namespace) -> int:
+    _print_brand_header()
     dash = bool(_find_dashboard_procs() or _port_open(bind_host(), bind_port()))
     server = bool(_find_server_procs())
     ollama = _ollama_ok()
@@ -768,6 +788,42 @@ def cmd_ai(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_style(args: argparse.Namespace) -> int:
+    action = str(getattr(args, 'action', 'status') or 'status').lower()
+    name = str(getattr(args, 'name', '') or '').strip().lower()
+
+    if action == 'status':
+        style_name = resolve_style(ROOT)
+        print(f'style: {style_name}')
+        return 0
+
+    if action == 'set':
+        if not name:
+            print('usage: arx style set <underground|dos|minimal|off>', file=sys.stderr)
+            return 1
+        try:
+            chosen = set_style(ROOT, name)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        print(f'style set: {chosen}')
+        return 0
+
+    if action == 'preview':
+        preview_name = name if name else resolve_style(ROOT)
+        _print_brand_header(explicit_style=preview_name)
+        pack = style_pack(ROOT, explicit=preview_name)
+        if pack.delusion_sample:
+            print('[DELUSION underground sample]')
+            print(pack.delusion_sample)
+        else:
+            print('style preview is off')
+        return 0
+
+    print('unknown style action; use set|status|preview', file=sys.stderr)
+    return 1
+
+
 def cmd_tunnel(args: argparse.Namespace) -> int:
     action = str(getattr(args, 'action', 'status') or 'status').lower()
 
@@ -851,6 +907,12 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument('--url', default='', help='Set/update PLAYIT_URL during tunnel setup')
     tp.add_argument('--enable', action='store_true', help='Set PLAYIT_ENABLED=true during tunnel setup')
 
+    sty = sp.add_parser('style')
+    sty.add_argument('action', nargs='?', default='status', choices=('set', 'status', 'preview'))
+    sty.add_argument('name', nargs='?', default='')
+
+    sp.add_parser('tui')
+
     ap = sp.add_parser('ai')
     ap.add_argument('action', nargs='?', choices=('set-context',), default='set-context')
     ap.add_argument('tokens', nargs='?')
@@ -859,6 +921,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_parser('--help')
     sp.add_parser('-h')
     return p
+
+
+def cmd_tui(_: argparse.Namespace) -> int:
+    print('ARX TUI is not shipped yet in this phase.')
+    print('Use: arx style preview underground')
+    print('Planned next step: full animated TUI with service cards and live logs.')
+    return 0
 
 
 def main() -> int:
@@ -882,6 +951,8 @@ def main() -> int:
         'logs': cmd_logs,
         'ai': cmd_ai,
         'tunnel': cmd_tunnel,
+        'style': cmd_style,
+        'tui': cmd_tui,
         'version': cmd_version,
     }
     fn = table.get(cmd)

@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StylePack:
+    key: str
+    title: str
+    arx_logo: str
+    delusion_sample: str
+
+
+ARX_UNDERGROUND_UNICODE = r"""
+ █████╗ ██████╗ ██╗  ██╗
+██╔══██╗██╔══██╗╚██╗██╔╝
+███████║██████╔╝ ╚███╔╝ 
+██╔══██║██╔══██╗ ██╔██╗ 
+██║  ██║██║  ██║██╔╝ ██╗
+╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+""".strip("\n")
+
+DELUSION_UNDERGROUND_UNICODE = r"""
+██████╗ ███████╗██╗     ██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗
+██╔══██╗██╔════╝██║     ██║   ██║██╔════╝██║██╔═══██╗████╗  ██║
+██║  ██║█████╗  ██║     ██║   ██║███████╗██║██║   ██║██╔██╗ ██║
+██║  ██║██╔══╝  ██║     ██║   ██║╚════██║██║██║   ██║██║╚██╗██║
+██████╔╝███████╗███████╗╚██████╔╝███████║██║╚██████╔╝██║ ╚████║
+╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+""".strip("\n")
+
+ARX_UNDERGROUND_DOS = r"""
+______   ______  __   __
+|  _  \ /  __  \ \ \ / /
+| | | | | /  \ |  \ V /
+| | | | | |  | |   > <
+| |/ /  | \__/ |  / . \
+|___/    \____/  /_/ \_\
+""".strip("\n")
+
+DELUSION_UNDERGROUND_DOS = r"""
+______  _____ _     _   _ _____ _____ _____ _   _
+|  _  \|  ___| |   | | | /  ___|_   _|  _  | \ | |
+| | | || |__ | |   | | | \ `--.  | | | | | |  \| |
+| | | ||  __|| |   | | | |`--. \ | | | | | | . ` |
+| |/ / | |___| |___| |_| /\__/ /_| |_\ \_/ / |\  |
+|___/  \____/\_____/\___/\____/ \___/ \___/\_| \_/
+""".strip("\n")
+
+ARX_MINIMAL = r"""
+    ___    ____  _  __
+   /   |  / __ \| |/ /
+  / /| | / /_/ /   /
+ / ___ |/ _, _/   |
+/_/  |_/_/ |_/_/|_|
+""".strip("\n")
+
+DELUSION_MINIMAL = r"""
+    ____  ________    __  _______ ________  _   __
+   / __ \/ ____/ /   / / / / ___//  _/ __ \/ | / /
+  / / / / __/ / /   / / / /\__ \ / // / / /  |/ /
+ / /_/ / /___/ /___/ /_/ /___/ // // /_/ / /|  /
+/_____/_____/_____/\____//____/___/\____/_/ |_/
+""".strip("\n")
+
+
+STYLE_PACKS: dict[str, StylePack] = {
+    "underground": StylePack(
+        key="underground",
+        title="Underground",
+        arx_logo=ARX_UNDERGROUND_UNICODE,
+        delusion_sample=DELUSION_UNDERGROUND_UNICODE,
+    ),
+    "dos": StylePack(
+        key="dos",
+        title="Underground DOS",
+        arx_logo=ARX_UNDERGROUND_DOS,
+        delusion_sample=DELUSION_UNDERGROUND_DOS,
+    ),
+    "minimal": StylePack(
+        key="minimal",
+        title="Minimal ASCII",
+        arx_logo=ARX_MINIMAL,
+        delusion_sample=DELUSION_MINIMAL,
+    ),
+    "off": StylePack(
+        key="off",
+        title="Off",
+        arx_logo="",
+        delusion_sample="",
+    ),
+}
+
+
+def get_style_pack(key: str) -> StylePack:
+    normalized = (key or "").strip().lower()
+    return STYLE_PACKS.get(normalized, STYLE_PACKS["underground"])
