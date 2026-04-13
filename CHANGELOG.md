@@ -1,32 +1,18 @@
 # Changelog
 
-All notable changes to ARX are documented here.
+All notable changes to this project are documented in this file.
 
-## [1.0.0-beta] - 2026-04-09
+## Unreleased
 
-### Added
-- Production-oriented installer distribution via `arxmc.studio` endpoints.
-- Windows bootstrap installer path with runtime bundle hydration.
-- Public checksum verification flow for installer artifacts.
+### Fixed
+- Installer launcher generation: replaced unsafe here-string with array-join in install.ps1 to avoid parsing errors when the script is executed via irm | iex. (Windows batch launcher generation)
+- PowerShell bootstrap invocation: website one-liner changed to download installer to a temp file and invoke it (uses `irm -OutFile`) so `param()` blocks and full PowerShell syntax work reliably when run from the web. (arx-website update)
+- Java detection robustness: fixed $ErrorActionPreference handling around `java -version` calls so stderr output is captured correctly during Java version probing (prevents premature termination of the probe).
+- Checksums manifest: normalized checksums.txt to reference base filenames (install.sh, install.ps1, arx-runtime.zip) so verification works as documented on the site. (arx-website/public/checksums.txt)
 
 ### Changed
-- ARX branding finalized across runtime, docs, and installer UX.
-- Linux installer hardening:
-  - sudo preflight
-  - non-interactive dependency installation
-  - apt lock timeout handling
-- Windows installer hardening:
-  - admin-aware winget behavior
-  - timeout-safe package installation wrapper
-  - live winget output streaming and UAC wait hints
-- Documentation and release guidance aligned for production launch.
+- Updated public installer artifacts on the website to include the latest install.sh, install.ps1, and arx-runtime.zip.
 
-### Security
-- Preserved command validation safeguards and OP-oriented execution boundaries.
-
-## [0.1.0-alpha]
-
-### Added
-- Initial local-first installer and runtime setup.
-- Gemma-focused Ollama integration (`gemma4:e2b`).
-- Dashboard + CLI lifecycle control foundation.
+### Notes
+- The temp-file PowerShell invocation preserves `param()` semantics and is the recommended safe pattern for web-launched PowerShell installers.
+- If you want a formal release tag, create a semver tag (vMAJOR.MINOR.PATCH) and the CI workflow will generate a GitHub Release with artifacts automatically.
