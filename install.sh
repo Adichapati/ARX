@@ -1,7 +1,135 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# ============================================================================
+#  ARX installer  --  https://arxmc.studio
+#
+#  Runs two ways:
+#    1. From a cloned checkout:   ./install.sh
+#    2. Hosted one-liner:         curl -fsSL https://arxmc.studio/install.sh | bash
+#
+#  In one-liner (bootstrap) mode the script arrives over a pipe with no repo
+#  around it, so it downloads the integrity-verified runtime bundle, unpacks it
+#  into $ARX_INSTALL_DIR (default ~/ARX), and re-executes the real installer
+#  with stdin reconnected to the terminal so the guided setup still works.
+#  This mirrors the Windows install.ps1 bootstrap behaviour.
+# ============================================================================
+
+ARX_BOOTSTRAP_ZIP_URL="${ARX_BOOTSTRAP_ZIP_URL:-https://arxmc.studio/arx-runtime.zip}"
+ARX_BOOTSTRAP_CHECKSUMS_URL="${ARX_BOOTSTRAP_CHECKSUMS_URL:-https://arxmc.studio/checksums.txt}"
+ARX_INSTALL_DIR="${ARX_INSTALL_DIR:-$HOME/ARX}"
+
+_bs_need() { command -v "$1" >/dev/null 2>&1; }
+_bs_say()  { printf '\033[38;5;45m[ARX]\033[0m %s\n' "$*"; }
+_bs_die()  { printf '\033[38;5;203m[ARX][ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Directory this script physically lives in. Empty when piped via curl|bash.
+_bs_script_dir() {
+  local src="${BASH_SOURCE[0]:-}"
+  if [[ -z "$src" || "$src" == "bash" || "$src" == "sh" || ! -f "$src" ]]; then
+    printf ''
+    return 0
+  fi
+  ( cd "$(dirname "$src")" >/dev/null 2>&1 && pwd )
+}
+
+# A real checkout has these marker files; a bare pipe does not.
+_bs_is_checkout() {
+  local d="$1"
+  [[ -n "$d" && -f "$d/requirements.txt" && -f "$d/scripts/generate_env.py" && -f "$d/install.sh" ]]
+}
+
+_bs_sha256() {
+  if _bs_need sha256sum; then sha256sum "$1" | awk '{print $1}'
+  elif _bs_need shasum; then shasum -a 256 "$1" | awk '{print $1}'
+  elif _bs_need openssl; then openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else return 1; fi
+}
+
+_bs_fetch() {        # url dest
+  if _bs_need curl; then curl -fsSL "$1" -o "$2"
+  elif _bs_need wget; then wget -qO "$2" "$1"
+  else return 1; fi
+}
+
+_bs_fetch_stdout() { # url
+  if _bs_need curl; then curl -fsSL "$1"
+  elif _bs_need wget; then wget -qO- "$1"
+  else return 1; fi
+}
+
+# Pull the expected hash for a filename out of a checksums.txt body.
+_bs_expected_hash() { # checksums_text target_name
+  awk -v target="$2" '
+    /^[[:space:]]*#/ { next }
+    {
+      hash = $1
+      name = $2
+      sub(/^\*/, "", name)
+      if (name == target && hash ~ /^[0-9a-fA-F]{64}$/) { print tolower(hash); exit }
+    }' <<<"$1"
+}
+
+_bs_extract() {      # zip dest
+  mkdir -p "$2"
+  if _bs_need unzip; then unzip -oq "$1" -d "$2"
+  elif _bs_need python3; then python3 -m zipfile -e "$1" "$2"
+  elif _bs_need bsdtar; then bsdtar -xf "$1" -C "$2"
+  else return 1; fi
+}
+
+arx_bootstrap() {
+  _bs_say "Bootstrap mode -- fetching verified runtime from ${ARX_BOOTSTRAP_ZIP_URL}"
+  _bs_need curl || _bs_need wget || _bs_die "Need 'curl' or 'wget' to bootstrap ARX."
+
+  local tmp_zip checksums target expected actual
+  tmp_zip="$(mktemp "${TMPDIR:-/tmp}/arx-runtime.XXXXXX")" || _bs_die "Cannot create temp file."
+  trap 'rm -f "${tmp_zip:-}"' EXIT
+
+  _bs_fetch "$ARX_BOOTSTRAP_ZIP_URL" "$tmp_zip" || _bs_die "Failed to download runtime bundle."
+
+  checksums="$(_bs_fetch_stdout "$ARX_BOOTSTRAP_CHECKSUMS_URL")" || _bs_die "Failed to download checksums."
+  target="$(basename "${ARX_BOOTSTRAP_ZIP_URL%%\?*}")"
+  expected="$(_bs_expected_hash "$checksums" "$target")"
+  [[ -n "$expected" ]] || _bs_die "No checksum entry for '$target' in $ARX_BOOTSTRAP_CHECKSUMS_URL"
+  actual="$(_bs_sha256 "$tmp_zip")" || _bs_die "No SHA-256 tool found (need sha256sum/shasum/openssl)."
+  if [[ "${actual,,}" != "$expected" ]]; then
+    _bs_die "Runtime bundle checksum mismatch (expected $expected, got ${actual,,}). Refusing to continue."
+  fi
+  _bs_say "Runtime bundle verified (sha256 ok)."
+
+  mkdir -p "$ARX_INSTALL_DIR" || _bs_die "Cannot create install dir: $ARX_INSTALL_DIR"
+  _bs_extract "$tmp_zip" "$ARX_INSTALL_DIR" || _bs_die "Failed to extract bundle (need unzip, python3, or bsdtar)."
+  rm -f "$tmp_zip"; trap - EXIT
+
+  local reentry="$ARX_INSTALL_DIR/install.sh"
+  if [[ ! -f "$reentry" ]]; then
+    reentry="$(find "$ARX_INSTALL_DIR" -maxdepth 3 -name install.sh -type f 2>/dev/null | head -n1)"
+  fi
+  [[ -f "$reentry" ]] || _bs_die "Bootstrap failed: install.sh not found after extraction."
+  chmod +x "$reentry" 2>/dev/null || true
+
+  _bs_say "Runtime installed to ${ARX_INSTALL_DIR}"
+  _bs_say "Launching guided setup..."
+  echo
+
+  export ARX_BOOTSTRAPPED=1
+  # Reconnect stdin to the controlling terminal so the interactive setup works
+  # even though this script itself arrived over a pipe. Probe /dev/tty by
+  # actually opening it -- a node can exist with no controlling terminal
+  # (containers/CI), where the open fails with ENXIO.
+  if [[ ! -t 0 ]] && { : </dev/tty; } 2>/dev/null; then
+    exec bash "$reentry" "$@" </dev/tty
+  fi
+  exec bash "$reentry" "$@"
+}
+
+ARX_SCRIPT_DIR="$(_bs_script_dir)"
+if ! _bs_is_checkout "$ARX_SCRIPT_DIR"; then
+  arx_bootstrap "$@"
+fi
+
+ROOT_DIR="$ARX_SCRIPT_DIR"
 cd "$ROOT_DIR"
 
 YES_MODE=false
@@ -42,8 +170,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
-log() { echo "[ARX] $*"; }
-err() { echo "[ARX][ERROR] $*" >&2; }
+log() { printf '  %s[ARX]%s %s\n' "${C_ACCENT:-}" "${C_RESET:-}" "$*"; }
+err() { printf '  %s[ARX][ERROR]%s %s\n' "${C_ERR:-}" "${C_RESET:-}" "$*" >&2; }
 
 SUDO_READY=false
 SUDO_KEEPALIVE_PID=""
@@ -110,6 +238,29 @@ if [[ "$YES_MODE" == true ]] || [[ ! -t 1 ]]; then
   UI_ENABLED=false
 fi
 
+# ----------------------------------------------------------------------------
+#  Palette + glyphs  (honours NO_COLOR, dumb terminals and non-UTF locales)
+# ----------------------------------------------------------------------------
+ESC=$'\033'
+C_RESET=""; C_DIM=""; C_BOLD=""; C_ACCENT=""; C_OK=""; C_WARN=""; C_ERR=""; C_MUTE=""
+ARX_USE_COLOR=false
+if [[ "$UI_ENABLED" == true && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+  ARX_USE_COLOR=true
+  C_RESET="${ESC}[0m"; C_DIM="${ESC}[2m"; C_BOLD="${ESC}[1m"
+  C_ACCENT="${ESC}[38;5;45m"   # cyan
+  C_OK="${ESC}[38;5;48m"       # green
+  C_WARN="${ESC}[38;5;214m"    # amber
+  C_ERR="${ESC}[38;5;203m"     # red
+  C_MUTE="${ESC}[38;5;245m"    # grey
+fi
+
+# Smooth cyan -> green ramp for the logo reveal (xterm-256 cube).
+LOGO_GRAD=(51 50 50 49 48 48 47 46 46 46)
+
+# Glyphs are assigned once the style is resolved (see set_glyphs below).
+GL_ARROW=">"; GL_DOT="-"; GL_RULE="-"; GL_OK="OK"; GL_DONE="*"
+BAR_FULL="#"; BAR_EMPTY="."; STEP_FULL="="; STEP_EMPTY="-"
+
 STEP_TOTAL=11
 STEP_CUR=0
 
@@ -166,19 +317,17 @@ resolve_installer_style() {
 installer_logo() {
   local style="$1"
   case "$style" in
-    underground)
+    underground|"")
+      # Delta Corps Priest "ARX" -- shared with the arx CLI/TUI branding.
       cat <<'EOF'
-      ___           ___           ___
-     /\  \         /\  \         /\__\
-    /::\  \       /::\  \       /:/  /
-   /:/\:\  \     /:/\:\  \     /:/__/
-  /::\~\:\  \   /::\~\:\  \   /::\  \
- /:/\:\ \:\__\ /:/\:\ \:\__\ /:/\:\  \
- \/__\:\/:/  / \/_|::\/:/  / \/__\:\  \
-      \::/  /     |:|::/  /       \:\  \
-      /:/  /      |:|\/__/        /:/  /
-     /:/  /       |:|  |         /:/  /
-     \/__/         \|__|         \/__/
+   ▄████████    ▄████████ ▀████    ▐████▀
+  ███    ███   ███    ███   ███▌   ████▀
+  ███    ███   ███    ███    ███  ▐███
+  ███    ███  ▄███▄▄▄▄██▀    ▀███▄███▀
+▀███████████ ▀▀███▀▀▀▀▀      ████▀██▄
+  ███    ███ ▀███████████   ▐███  ▀███
+  ███    ███   ███    ███  ▄███     ███▄
+  ███    █▀    ███    ███ ████       ███▄
 EOF
       ;;
     classic)
@@ -212,37 +361,105 @@ EOF
       ;;
     off)
       ;;
-    *)
-      cat <<'EOF'
-      ___           ___           ___
-     /\  \         /\  \         /\__\
-    /::\  \       /::\  \       /:/  /
-   /:/\:\  \     /:/\:\  \     /:/__/
-  /::\~\:\  \   /::\~\:\  \   /::\  \
- /:/\:\ \:\__\ /:/\:\ \:\__\ /:/\:\  \
- \/__\:\/:/  / \/_|::\/:/  / \/__\:\  \
-      \::/  /     |:|::/  /       \:\  \
-      /:/  /      |:|\/__/        /:/  /
-     /:/  /       |:|  |         /:/  /
-     \/__/         \|__|         \/__/
-EOF
-      ;;
   esac
 }
 
 INSTALLER_STYLE="$(resolve_installer_style)"
+
+# Promote glyphs to Unicode once we know the resolved style supports it.
+set_glyphs() {
+  case "$INSTALLER_STYLE" in
+    underground|classic)
+      GL_ARROW="▸"; GL_DOT="·"; GL_RULE="─"; GL_OK="✓"; GL_DONE="●"
+      BAR_FULL="█"; BAR_EMPTY="░"; STEP_FULL="━"; STEP_EMPTY="╌"
+      ;;
+  esac
+}
+set_glyphs
+
+RULE_WIDTH=44
+
+# Repeat a (possibly multibyte) glyph N times. Multibyte-safe, unlike `tr`,
+# which operates byte-by-byte and shreds UTF-8 box-drawing characters.
+repeat() {
+  local ch="$1" n="$2" out=""
+  while (( n-- > 0 )); do out+="$ch"; done
+  printf '%s' "$out"
+}
+
+# Print the logo with a per-line cyan->green gradient (plain when no color).
+print_logo() {
+  [[ "$INSTALLER_STYLE" == "off" ]] && return 0
+  local i=0 line code
+  while IFS= read -r line; do
+    if [[ "$ARX_USE_COLOR" == true ]]; then
+      code="${LOGO_GRAD[i]:-${LOGO_GRAD[$((${#LOGO_GRAD[@]} - 1))]}}"
+      printf '  %s%s%s\n' "${ESC}[1;38;5;${code}m" "$line" "$C_RESET"
+    else
+      printf '  %s\n' "$line"
+    fi
+    i=$((i + 1))
+  done < <(installer_logo "$INSTALLER_STYLE")
+}
+
+# Same as print_logo but reveals one line at a time for the splash.
+print_logo_animated() {
+  if [[ "$ARX_USE_COLOR" != true ]]; then print_logo; return 0; fi
+  [[ "$INSTALLER_STYLE" == "off" ]] && return 0
+  local i=0 line code
+  while IFS= read -r line; do
+    code="${LOGO_GRAD[i]:-${LOGO_GRAD[$((${#LOGO_GRAD[@]} - 1))]}}"
+    printf '  %s%s%s\n' "${ESC}[1;38;5;${code}m" "$line" "$C_RESET"
+    sleep 0.03
+    i=$((i + 1))
+  done < <(installer_logo "$INSTALLER_STYLE")
+}
+
+brand_tagline() {
+  printf '  %s%s Agentic Runtime for eXecution%s\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET"
+  printf '  %s   local-first minecraft ops %s arxmc.studio%s\n' "$C_MUTE" "$GL_DOT" "$C_RESET"
+}
 
 banner() {
   if [[ -n "${TERM:-}" && "$UI_ENABLED" == true ]]; then
     clear || true
   fi
   echo
-  installer_logo "$INSTALLER_STYLE"
+  print_logo
   echo
-  echo "  ┌───────────────────────────────────────────────────────┐"
-  echo "  │  A R X  ╱╱  Production Setup                         │"
-  echo "  └───────────────────────────────────────────────────────┘"
+  brand_tagline
   echo
+}
+
+# Animated first-paint: logo reveal, tagline, and a short prep shimmer.
+splash() {
+  if [[ "$UI_ENABLED" != true ]]; then
+    banner
+    return 0
+  fi
+  clear || true
+  echo
+  print_logo_animated
+  echo
+  brand_tagline
+  echo
+  loader_bar "Guided setup"
+}
+
+loader_bar() {
+  local label="$1" width=34 i fill rest pct
+  if [[ "$UI_ENABLED" != true ]]; then
+    return 0
+  fi
+  for i in $(seq 1 "$width"); do
+    fill="$(repeat "$BAR_FULL" "$i")"
+    rest="$(repeat "$BAR_EMPTY" "$((width - i))")"
+    pct=$((i * 100 / width))
+    printf '\r  %s%s%s%s%s  %s%3d%%%s' "$C_ACCENT" "$fill" "$C_DIM" "$rest" "$C_RESET" "$C_MUTE" "$pct" "$C_RESET"
+    sleep 0.012
+  done
+  printf '\r%-72s\r' ''
+  printf '  %s%s%s %s%s ready%s\n\n' "$C_OK" "$GL_OK" "$C_RESET" "$C_DIM" "$label" "$C_RESET"
 }
 
 ascii_divider() {
@@ -257,8 +474,7 @@ ascii_divider() {
     admin)   label="CREDENTIALS" ;;
     *)       label="CONFIGURE" ;;
   esac
-  echo "  │  $label"
-  echo
+  printf '  %s%s%s %s%s%s\n\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET" "$C_MUTE" "$label" "$C_RESET"
 }
 
 prompt_with_art() {
@@ -310,14 +526,14 @@ select_from_list() {
     banner
     box "$title"
     ascii_divider "$tag"
-    printf "    \033[90mUp/Down arrows + Enter to choose\033[0m\n\n"
+    printf '    %sUp/Down arrows, Enter to choose%s\n\n' "$C_DIM" "$C_RESET"
 
     local i
     for i in "${!options[@]}"; do
       if (( i == index )); then
-        printf '    \033[36m› %s\033[0m\n' "${options[$i]}"
+        printf '    %s%s %s%s\n' "$C_ACCENT" "$GL_ARROW" "${options[$i]}" "$C_RESET"
       else
-        printf '      %s\n' "${options[$i]}"
+        printf '      %s%s%s\n' "$C_MUTE" "${options[$i]}" "$C_RESET"
       fi
     done
 
@@ -342,27 +558,14 @@ select_from_list() {
   done
 }
 
-intro_animation() {
-  if [[ "$UI_ENABLED" != true ]]; then
-    return
-  fi
-  local i fill width=40
-  for i in 4 10 16 22 28 34 40; do
-    fill=$(printf '%*s' "$i" '' | tr ' ' '━')
-    local pad=$(printf '%*s' "$((width - i))" '' | tr ' ' '╌')
-    printf "\r  Initializing  [%s%s]  %3d%%" "$fill" "$pad" "$((i * 100 / width))"
-    sleep 0.05
-  done
-  printf "\n"
-}
-
 box() {
   local title="$1"
-  echo
-  printf "  ┌─── %s " "$title"
-  local pad=$((54 - ${#title}))
+  local pad=$((RULE_WIDTH - ${#title}))
   if (( pad < 1 )); then pad=1; fi
-  printf '%*s\n' "$pad" '' | tr ' ' '─'
+  local tail
+  tail="$(repeat "$GL_RULE" "$pad")"
+  echo
+  printf '  %s%s%s %s%s %s%s%s\n' "$C_ACCENT" "$GL_RULE$GL_RULE$GL_RULE" "$C_RESET" "$C_BOLD" "$title" "$C_DIM" "$tail" "$C_RESET"
 }
 
 transition() {
@@ -370,22 +573,26 @@ transition() {
   if [[ "$UI_ENABLED" == true ]]; then
     local dots=""
     for _ in 1 2 3; do
-      dots+="."
-      printf "\r  [ARX] %s%s   " "$text" "$dots"
+      dots+="$GL_DOT"
+      printf '\r  %s[ARX]%s %s%s   ' "$C_ACCENT" "$C_RESET" "$text" "$dots"
       sleep 0.09
     done
     printf "\r%-72s\r" ""
   fi
-  echo "  [ARX] $text"
+  printf '  %s[ARX]%s %s\n' "$C_ACCENT" "$C_RESET" "$text"
 }
 
 spinner_run() {
   local label="$1"
   shift
 
-  local tmp pid frames i
+  local tmp pid frames flen i
   tmp="$(mktemp)"
-  frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  if [[ "$BAR_FULL" == "█" ]]; then
+    frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; flen=10
+  else
+    frames='|/-\'; flen=4
+  fi
 
   "$@" >"$tmp" 2>&1 &
   pid=$!
@@ -393,8 +600,8 @@ spinner_run() {
 
   if [[ "$UI_ENABLED" == true ]]; then
     while kill -0 "$pid" 2>/dev/null; do
-      local c="${frames:i%10:1}"
-      printf "\r    %s %s" "$c" "$label"
+      local c="${frames:i%flen:1}"
+      printf '\r    %s%s%s %s' "$C_ACCENT" "$c" "$C_RESET" "$label"
       i=$((i + 1))
       sleep 0.08
     done
@@ -409,7 +616,7 @@ spinner_run() {
 
   if [[ $rc -eq 0 ]]; then
     if [[ "$UI_ENABLED" == true ]]; then
-      printf "    ✓ %s\n" "$label"
+      printf '    %s%s%s %s\n' "$C_OK" "$GL_OK" "$C_RESET" "$label"
     else
       echo "  [ARX] $label: ok"
     fi
@@ -417,6 +624,7 @@ spinner_run() {
     return 0
   fi
 
+  printf '    %s%s%s %s\n' "$C_ERR" "x" "$C_RESET" "$label" >&2
   err "$label failed"
   sed -n '1,200p' "$tmp" >&2 || true
   rm -f "$tmp"
@@ -425,11 +633,14 @@ spinner_run() {
 
 tick_step() {
   STEP_CUR=$((STEP_CUR + 1))
-  local bar filled remaining
+  local filled remaining fb eb
   filled=$((STEP_CUR))
   remaining=$((STEP_TOTAL - STEP_CUR))
-  bar="$(printf '%*s' "$filled" '' | tr ' ' '━')$(printf '%*s' "$remaining" '' | tr ' ' '╌')"
-  printf "  [%s] [%02d/%02d] %s\n" "$bar" "$STEP_CUR" "$STEP_TOTAL" "$1"
+  fb="$(repeat "$STEP_FULL" "$filled")"
+  eb="$(repeat "$STEP_EMPTY" "$remaining")"
+  printf '  %s%s%s%s%s  %s[%02d/%02d]%s %s\n' \
+    "$C_OK" "$fb" "$C_DIM" "$eb" "$C_RESET" \
+    "$C_MUTE" "$STEP_CUR" "$STEP_TOTAL" "$C_RESET" "$1"
 }
 
 install_pkg_linux() {
@@ -907,22 +1118,21 @@ EOF
 
   box "Install Complete"
   echo
-  printf "    \033[32m%s\033[0m\n" "http://localhost:${DASHBOARD_PORT}/"
+  printf '    %s%s%s ARX is ready.%s\n' "$C_OK" "$GL_DONE" "$C_BOLD" "$C_RESET"
+  printf '    %sDashboard%s  %s%shttp://localhost:%s/%s\n\n' "$C_MUTE" "$C_RESET" "$C_OK" "$C_BOLD" "${DASHBOARD_PORT}" "$C_RESET"
+  printf '    %sNext steps%s\n' "$C_DIM" "$C_RESET"
+  printf '      %s%s%s %-16s %s\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET" "arx start" "${C_MUTE}launch all services${C_RESET}"
+  printf '      %s%s%s %-16s %s\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET" "arx status" "${C_MUTE}show service status${C_RESET}"
+  printf '      %s%s%s %-16s %s\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET" "arx help" "${C_MUTE}full command menu${C_RESET}"
+  printf '      %s%s%s %-16s %s\n' "$C_ACCENT" "$GL_ARROW" "$C_RESET" "arx tunnel setup" "${C_MUTE}optional public access${C_RESET}"
   echo
-  printf "    %-18s %s\n" "Start" "arx start"
-  printf "    %-18s %s\n" "Help" "arx help"
-  printf "    %-18s %s\n" "Status" "arx status"
-  printf "    %-18s %s\n" "Shutdown" "arx shutdown"
-  printf "    %-18s %s\n" "Tunnel setup" "arx tunnel setup"
-  printf "    %-18s %s\n" "Tunnel status" "arx tunnel status"
-  printf "    %-18s %s\n" "AI context" "arx ai set-context 4096"
   if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-    printf "    %-18s %s\n" "ARX launcher" "$HOME/.local/bin/arx"
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-      printf "    %-18s %s\n" "PATH note" "add ~/.local/bin to PATH"
+      printf '    %s!%s %sadd ~/.local/bin to PATH, or run %s%s\n' "$C_WARN" "$C_RESET" "$C_MUTE" "$HOME/.local/bin/arx" "$C_RESET"
+      echo
     fi
   fi
-  printf "    %-18s %s\n" "Gemma trigger" "${AGENT_TRIGGER}"
+  printf '    %sIn-game AI trigger word: %s%s%s\n' "$C_MUTE" "$C_BOLD" "${AGENT_TRIGGER}" "$C_RESET"
   echo
 }
 
@@ -939,27 +1149,34 @@ run_step() {
 
 export DASHBOARD_PORT AGENT_TRIGGER GEMMA_MODEL GEMMA_CONTEXT_SIZE GEMMA_TEMPERATURE MC_VERSION PLAYIT_ENABLED PLAYIT_URL
 
-banner
-intro_animation
-transition "Opening setup"
-box "Interactive First-Run"
-prompt_if_needed
-validate_inputs
-show_summary
+arx_main() {
+  splash
+  box "Guided first-run setup"
+  prompt_if_needed
+  validate_inputs
+  show_summary
 
-preflight_privileges
+  preflight_privileges
 
-transition "Running installation pipeline"
-run_step "Prerequisite checks" install_prereqs
-run_step "Python environment" setup_python
-run_step "Ollama + model readiness" ensure_ollama
-run_step "Playit tunnel readiness" ensure_playit
-run_step "Project directories" setup_files
-run_step "Minecraft server jar" download_server_jar
-run_step "Secure env generation" write_env
-run_step "Runtime setup profile" write_runtime_setup
-run_step "Finalize installer" finalize
+  transition "Running installation pipeline"
+  run_step "Prerequisite checks" install_prereqs
+  run_step "Python environment" setup_python
+  run_step "Ollama + model readiness" ensure_ollama
+  run_step "Playit tunnel readiness" ensure_playit
+  run_step "Project directories" setup_files
+  run_step "Minecraft server jar" download_server_jar
+  run_step "Secure env generation" write_env
+  run_step "Runtime setup profile" write_runtime_setup
+  run_step "Finalize installer" finalize
 
-if [[ "$UI_ENABLED" == true ]]; then
-  transition "All done"
+  if [[ "$UI_ENABLED" == true ]]; then
+    transition "All done"
+  fi
+}
+
+# Auto-run when executed directly. Set ARX_SOURCE_ONLY=1 to source the helper
+# functions (banner/splash/progress) without running the installer -- used by
+# the visual preview harness and tests.
+if [[ "${ARX_SOURCE_ONLY:-}" != "1" ]]; then
+  arx_main "$@"
 fi
